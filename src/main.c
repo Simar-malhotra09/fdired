@@ -13,6 +13,10 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <curses.h>
+#include <signal.h>
+
+static void finish(int sig);
 
 #define DEBUG_CHAR '-'
 
@@ -29,6 +33,8 @@ void __print_debug(char* cmd, int n ){
 }
 int main(int argc, char** argv)
 {
+  // int num = 0;
+
   // fd params fd [FLAG] [PATTERN] [PATH]
   char flags[512] = "--absolute-path";  //always on  
   const char *pattern = "";
@@ -39,6 +45,14 @@ int main(int argc, char** argv)
   int c; // capture argv
   char* mode= "r"; // mode for popen used to run fd cmd 
                     
+  // source: https://invisible-island.net/ncurses/ncurses-intro.html
+  (void) signal(SIGINT, finish);      /* arrange interrupts to terminate */
+
+  (void) initscr();      /* initialize the curses library */
+  keypad(stdscr, TRUE);  /* enable keyboard mapping */
+  // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
+  (void) noecho();         /* dont echo input */
+  (void) cbreak();       /* take input chars one at a time, no wait for \n */
 
   static struct option long_options[] = {
       {"hidden",      no_argument,       0, 'H'},
@@ -83,7 +97,7 @@ int main(int argc, char** argv)
       path
   );
 
-  __print_debug(cmd, 100);
+  // __print_debug(cmd, 100);
   
   FILE* fd = popen(cmd, mode);
 
@@ -93,19 +107,45 @@ int main(int argc, char** argv)
   }
 
 
-  char buffer[1024];
+  // render some text 
+  mvaddstr(0,0, "Hello, ncurses!\n");
+  refresh();
+
+  int row = 1; // track row
+  char buffer[1024]; // store fd output 
+
   while (fgets(buffer, sizeof(buffer), fd) != NULL) {
-      printf("%s", buffer);
+      mvaddstr(row++, 0, buffer);
+      refresh();
   }
 
+  for (;;) {
+      int c = getch();
+
+      switch (c) {
+      case 'j':
+        mvaddstr(row++, 0, "[KEY]J pressed ");
+        refresh();
+        break;
+      case 'k':
+        mvaddstr(row++, 0, "[KEY]K pressed ");
+        refresh();
+        break;
+      }
+  }
   int status = pclose(fd);
   if (status == -1) {
       perror("pclose failed");
       return -1;
   }
-
+  // endwin();
   return 0;
 
 }
 
-
+static void finish(int sig)
+{
+  (void)sig;
+  endwin();
+  exit(0);
+}
