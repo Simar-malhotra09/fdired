@@ -5,6 +5,7 @@ Mix of fd and Emacs' Dired
 [fd](https://github.com/sharkdp/fd)
 
 [Emacs' Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html)
+
 Never heard of Emacs or Dired? [Watch Tsoding's "The Annoying Usefulness of Emacs"](https://www.youtube.com/watch?v=DMbrNhx2zWQ&t=84s)
 
 Why? Something like this probably exists already but I'm unemployed atm.
