@@ -1,5 +1,5 @@
 #define NOB_IMPLEMENTATION
-#include "../nob.h/nob.h"
+#include "nob.h"
 
 #define BUILD_FOLDER "./"
 #define SRC_FOLDER "src/"
