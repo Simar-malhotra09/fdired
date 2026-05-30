@@ -14,7 +14,9 @@ Why in C? I'm equally bad with all programming languages.
 
 What is the nob.h file? [no-build](https://github.com/tsoding/nob.h)
 
-Status? (2026/05/30) Just setup arg parsing. Atp fdired is just an alias for fd. Run as `./fdired [FLAG] [PATTERN] [PATH]`
+Status? 
+(2026/05/30) Basic render of fd output with ncurses supports j/k/gg/G nav; scrollable viewport not impl yet.
+(2026/05/30) Just setup arg parsing. Atp fdired is just an alias for fd. Run as `./fdired [FLAG] [PATTERN] [PATH]`
 
 ## Building from source
 ```
