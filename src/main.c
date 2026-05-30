@@ -31,9 +31,17 @@ void __print_debug(char* cmd, int n ){
   printf("%s\n", debug);
 
 }
+
+// helper; y:row, x:col; I have no idea
+// why it isn't the other way round 
+void write_and_refresh(int y, int x , char* str){
+  mvaddstr(y, x, str);
+  refresh();
+}
+
 int main(int argc, char** argv)
 {
-  // int num = 0;
+  // int num = 0
 
   // fd params fd [FLAG] [PATTERN] [PATH]
   char flags[512] = "--absolute-path";  //always on  
@@ -54,6 +62,8 @@ int main(int argc, char** argv)
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
 
+
+  // parse args for fdired
   static struct option long_options[] = {
       {"hidden",      no_argument,       0, 'H'},
       {"no-ignore",   no_argument,       0, 'I'},
@@ -63,7 +73,6 @@ int main(int argc, char** argv)
       {"max-depth",   required_argument, 0, 'd'},
       {0, 0, 0, 0}
   };
-
   while ((c = getopt_long(argc, argv, "HIt:e:d:g", long_options, NULL)) != -1) {
       switch (c) {
       case 'H': strncat(flags, " --hidden",    sizeof(flags) - strlen(flags) - 1); break;
@@ -98,7 +107,8 @@ int main(int argc, char** argv)
   );
 
   // __print_debug(cmd, 100);
-  
+ 
+  // open process to run fd cmd 
   FILE* fd = popen(cmd, mode);
 
   if(!fd){
@@ -108,28 +118,27 @@ int main(int argc, char** argv)
 
 
   // render some text 
-  mvaddstr(0,0, "Hello, ncurses!\n");
-  refresh();
+  write_and_refresh(0, 0,"Hello, ncurses!\n");
 
   int row = 1; // track row
   char buffer[1024]; // store fd output 
 
   while (fgets(buffer, sizeof(buffer), fd) != NULL) {
-      mvaddstr(row++, 0, buffer);
-      refresh();
+    write_and_refresh(row++,0,buffer);
   }
 
+  // keep alive until user presses <ctrl> c 
   for (;;) {
-      int c = getch();
+      int c = getch(); // key event 
 
+      // right now we only track keys
+      // no user input rendered 
       switch (c) {
       case 'j':
-        mvaddstr(row++, 0, "[KEY]J pressed ");
-        refresh();
+        write_and_refresh(row++, 0, "[KEY]J pressed");
         break;
       case 'k':
-        mvaddstr(row++, 0, "[KEY]K pressed ");
-        refresh();
+        write_and_refresh(row++, 0, "[KEY]K pressed");
         break;
       }
   }
@@ -138,7 +147,7 @@ int main(int argc, char** argv)
       perror("pclose failed");
       return -1;
   }
-  // endwin();
+  endwin();
   return 0;
 
 }
