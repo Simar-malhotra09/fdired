@@ -13,11 +13,32 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <getopt.h>
+
+#define DEBUG_CHAR '-'
+
+void __print_debug(char* cmd, int n ){
+  // debug
+  char debug[n];
+  memset(debug,DEBUG_CHAR , (n-1));
+  debug[n-1]='\0';
+
+  printf("%s\n", debug);
+  printf("cmd: %s\n", cmd);  
+  printf("%s\n", debug);
+
+}
 int main(int argc, char** argv)
 {
+  // fd params fd [FLAG] [PATTERN] [PATH]
+  char flags[512] = "--absolute-path";  //always on  
+  const char *pattern = "";
+  const char *path = ".";
 
-  char flags[512] = "--absolute-path";  /* always on */
-  int c;
+  char cmd[1024]; //store cmd for fd
+
+  int c; // capture argv
+  char* mode= "r"; // mode for popen used to run fd cmd 
+                    
 
   static struct option long_options[] = {
       {"hidden",      no_argument,       0, 'H'},
@@ -45,17 +66,14 @@ int main(int argc, char** argv)
       }
   }
 
-  // capture pos args [PATTERN] [PATH]
-  const char *pattern = "";
-  const char *path = ".";
 
   // if we use --glob, the pattern passed will be the
   // one searched on.
   if (optind < argc) pattern = argv[optind++];
   if (optind < argc) path = argv[optind];
 
-  char cmd[1024];
 
+  // build cmd for fd
   snprintf(
       cmd,
       sizeof(cmd),
@@ -64,24 +82,16 @@ int main(int argc, char** argv)
       pattern,
       path
   );
-  
-  // debug
-  char debug[100];
-  memset(debug, '*' ,99);
-  debug[99]='\0';
-  printf("%s\n", debug);
-  printf("cmd: %s\n", cmd);  
-  printf("%s\n", debug);
 
+  __print_debug(cmd, 100);
   
-  char* mode= "r";
   FILE* fd = popen(cmd, mode);
 
   if(!fd){
+    fprintf(stderr, "Some error occured!");
     return -1;
   }
 
-  printf("Fd cmd exec!\n");
 
   char buffer[1024];
   while (fgets(buffer, sizeof(buffer), fd) != NULL) {
