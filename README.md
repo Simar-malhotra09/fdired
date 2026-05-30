@@ -17,11 +17,12 @@ What is the nob.h file? [no-build](https://github.com/tsoding/nob.h)
 Status? (2026/05/30) Just setup arg parsing. Atp fdired is just an alias for fd. Run as `./fdired [FLAG] [PATTERN] [PATH]`
 
 ## Building from source
-\```
+```
 git clone https://github.com/Simar-malhotra09/fdired 
 cd fdired 
 cc -o nob nob.c
 ./nob # just compiles the src/main.c
 cd build # or wherever your build folder is, change in nob.c 
 ./fdired [FLAG] [PATTERN] [PATH]
-\```
+
+```
