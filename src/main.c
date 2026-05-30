@@ -16,9 +16,11 @@
 #include <curses.h>
 #include <signal.h>
 
-static void finish(int sig);
-
 #define DEBUG_CHAR '-'
+
+static void finish(int sig);
+static int num_rows= 0; // keep track of all rows rendered
+static int cursor_row = 0; // keep track of curr row
 
 void __print_debug(char* cmd, int n ){
   // debug
@@ -37,12 +39,25 @@ void __print_debug(char* cmd, int n ){
 void write_and_refresh(int y, int x , char* str){
   mvaddstr(y, x, str);
   refresh();
+  num_rows++;
+}
+
+void move_cursor_up(int* row) {
+    if (*row <= 0) return;
+    (*row)--;
+    move(*row, 0);
+    refresh();
+}
+
+void move_cursor_down(int* row) {
+    if (*row + 1 >= num_rows) return;
+    (*row)++;
+    move(*row, 0);
+    refresh();
 }
 
 int main(int argc, char** argv)
 {
-  // int num = 0
-
   // fd params fd [FLAG] [PATTERN] [PATH]
   char flags[512] = "--absolute-path";  //always on  
   const char *pattern = "";
@@ -61,7 +76,7 @@ int main(int argc, char** argv)
   // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
-
+  // curs_set(0);  
 
   // parse args for fdired
   static struct option long_options[] = {
@@ -127,6 +142,9 @@ int main(int argc, char** argv)
     write_and_refresh(row++,0,buffer);
   }
 
+  move(cursor_row, 0); // move cursor to top row
+  refresh();
+             
   // keep alive until user presses <ctrl> c 
   for (;;) {
       int c = getch(); // key event 
@@ -135,19 +153,24 @@ int main(int argc, char** argv)
       // no user input rendered 
       switch (c) {
       case 'j':
-        write_and_refresh(row++, 0, "[KEY]J pressed");
+        move_cursor_down(&cursor_row);
+        // write_and_refresh(row++, 0, "[KEY]J pressed");
         break;
       case 'k':
-        write_and_refresh(row++, 0, "[KEY]K pressed");
+        move_cursor_up(&cursor_row);
+        // write_and_refresh(row++, 0, "[KEY]K pressed");
         break;
       }
   }
+
+  // verify that process closes correctly 
   int status = pclose(fd);
   if (status == -1) {
       perror("pclose failed");
       return -1;
   }
-  endwin();
+
+  endwin(); // close window
   return 0;
 
 }
