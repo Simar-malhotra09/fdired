@@ -43,17 +43,27 @@ void write_and_refresh(int y, int x , char* str){
 }
 
 void move_cursor_up(int* row) {
-    if (*row <= 0) return;
-    (*row)--;
-    move(*row, 0);
-    refresh();
+  if (*row <= 0) return;
+  (*row)--;
+  move(*row, 0);
+  refresh();
 }
 
 void move_cursor_down(int* row) {
-    if (*row + 1 >= num_rows) return;
-    (*row)++;
-    move(*row, 0);
-    refresh();
+  if (*row + 1 >= num_rows) return;
+  (*row)++;
+  move(*row, 0);
+  refresh();
+}
+void move_cursor_bottom(int* row) {
+  *row = num_rows-1; // last row is a newline
+  move(*row, 0);
+  refresh();
+}
+void move_cursor_top(int* row) {
+  *row= 0;
+  move(*row, 0);
+  refresh();
 }
 
 int main(int argc, char** argv)
@@ -76,6 +86,7 @@ int main(int argc, char** argv)
   // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
+  scrollok(stdscr, TRUE);
   // curs_set(0);  
 
   // parse args for fdired
@@ -136,7 +147,7 @@ int main(int argc, char** argv)
   write_and_refresh(0, 0,"Hello, ncurses!\n");
 
   int row = 1; // track row
-  char buffer[1024]; // store fd output 
+  char buffer[2046]; // store fd output 
 
   while (fgets(buffer, sizeof(buffer), fd) != NULL) {
     write_and_refresh(row++,0,buffer);
@@ -145,22 +156,48 @@ int main(int argc, char** argv)
   move(cursor_row, 0); // move cursor to top row
   refresh();
              
+  char last_key =' '; // to keep track of paired strokes like `gg`
+
   // keep alive until user presses <ctrl> c 
   for (;;) {
-      int c = getch(); // key event 
+    int c = getch(); // key event 
 
-      // right now we only track keys
-      // no user input rendered 
-      switch (c) {
-      case 'j':
-        move_cursor_down(&cursor_row);
-        // write_and_refresh(row++, 0, "[KEY]J pressed");
-        break;
-      case 'k':
-        move_cursor_up(&cursor_row);
-        // write_and_refresh(row++, 0, "[KEY]K pressed");
+    // right now we only track keys
+    // no user input rendered 
+    
+    // TBD: fix the retard way of adding
+    // last_key at every case
+    switch (c) {
+    case 'j':
+      last_key=' ';
+      move_cursor_down(&cursor_row);
+      // write_and_refresh(row++, 0, "[KEY]J pressed");
+      break;
+    case 'k':
+      last_key=' ';
+      move_cursor_up(&cursor_row);
+      // write_and_refresh(row++, 0, "[KEY]K pressed");
+      break;
+    case 'G':
+      last_key=' ';
+      move_cursor_bottom(&cursor_row);
+      break;
+
+    case 'g':
+      if(last_key == 'g'){
+        move_cursor_top(&cursor_row);
         break;
       }
+      else{
+        last_key='g';
+        break;
+      }
+    default:
+      last_key=' ';
+      break;
+    }
+
+
   }
 
   // verify that process closes correctly 
