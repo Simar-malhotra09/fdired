@@ -15,13 +15,16 @@
 #include <curses.h>
 #include <signal.h>
 #include <stdint.h>
+#include <signal.h>
 
 #define DEBUG_CHAR '-'
 
+static volatile sig_atomic_t running = 1;
 static void finish(int sig);
 static int num_rows= 0; // keep track of all rows rendered
 static int cursor_row = 0; // keep track of curr row
-
+static FILE* fd_proc = NULL; // process that run fd 
+                             
 void __print_debug(char* cmd, int n ){
   // debug
   char debug[n];
@@ -80,6 +83,8 @@ void __viewport_debug(viewport* v){
 }
 
 void render(viewport* v, char** text){
+  // if curr_row == v.height and event J:
+  //
   return;
 }
 
@@ -87,9 +92,6 @@ int main(int argc, char** argv)
 {
   // create viewport 
   viewport v;
-  v.height=100;
-  v.width=100;
-  __viewport_debug(&v);
   // fd params fd [FLAG] [PATTERN] [PATH]
   char flags[512] = "--absolute-path";  //always on  
   const char *pattern = "";
@@ -147,12 +149,13 @@ int main(int argc, char** argv)
   __print_debug(cmd, 100);
  
   // open process to run fd cmd 
-  FILE* fd = popen(cmd, mode);
+  fd_proc= popen(cmd, mode);
 
-  if(!fd){
+  if(!fd_proc){
     fprintf(stderr, "Some error occured!");
     return -1;
   }
+  // close process if open
 
 
   // source: https://invisible-island.net/ncurses/ncurses-intro.html
@@ -163,15 +166,25 @@ int main(int argc, char** argv)
   // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
-  scrollok(stdscr, TRUE);
+  // scrollok(stdscr, TRUE);
+
+  v.height=LINES;
+  v.width=COLS;
 
   // render some text 
-  write_and_refresh(0, 0,"Hello, ncurses!\n");
+  write_and_refresh(0, 0,"Hello, ncurses!");
+
+  char info[64];
+  snprintf(info, sizeof(info), "rows:%d cols:%d", v.height, v.width);
+  write_and_refresh(0, v.width - strlen(info) - 1, info);
+  // mvaddstr(0, v.width - strlen(info) - 1, info);
+  // refresh();
+
 
   int row = 1; // track row
   char buffer[2046]; // store fd output 
 
-  while (fgets(buffer, sizeof(buffer), fd) != NULL) {
+  while (fgets(buffer, sizeof(buffer), fd_proc) != NULL) {
     write_and_refresh(row++,0,buffer);
   }
 
@@ -182,6 +195,7 @@ int main(int argc, char** argv)
 
   // keep alive until user presses <ctrl> c 
   for (;;) {
+    if(!running) break;
     int c = getch(); // key event 
 
     // right now we only track keys
@@ -222,21 +236,22 @@ int main(int argc, char** argv)
 
   }
 
-  // verify that process closes correctly 
-  int status = pclose(fd);
-  if (status == -1) {
-      perror("pclose failed");
-      return -1;
-  }
 
-  endwin(); // close window
+  endwin(); // close window 
+
+  // __viewport_debug(&v);
+
   return 0;
 
 }
 
 static void finish(int sig)
 {
+
   (void)sig;
+  // close process if open
+  if (fd_proc) pclose(fd_proc);
+  running=0;
   endwin();
   exit(0);
 }
