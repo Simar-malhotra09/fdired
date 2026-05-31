@@ -7,6 +7,7 @@
  * 5. <enter> $EDITOR file or vim file
  *
  */
+#include <_stdio.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -18,13 +19,13 @@
 #include <signal.h>
 
 #define DEBUG_CHAR '-'
-
 static volatile sig_atomic_t running = 1;
 static void finish(int sig);
-static int num_rows= 0; // keep track of all rows rendered
-static int cursor_row = 0; // keep track of curr row
 static FILE* fd_proc = NULL; // process that run fd 
                              
+char** proc_result= NULL; // store (ptr to) fd results 
+int proc_result_count=0; // fd results count
+                         
 void __print_debug(char* cmd, int n ){
   // debug
   char debug[n];
@@ -37,37 +38,6 @@ void __print_debug(char* cmd, int n ){
 
 }
 
-// helper; y:row, x:col; I have no idea
-// why it isn't the other way round 
-void write_and_refresh(int y, int x , char* text){
-  mvaddstr(y, x, text);
-  refresh();
-  num_rows++;
-}
-
-void move_cursor_up(int* row) {
-  if (*row <= 0) return;
-  (*row)--;
-  move(*row, 0);
-  refresh();
-}
-
-void move_cursor_down(int* row) {
-  if (*row + 1 >= num_rows) return;
-  (*row)++;
-  move(*row, 0);
-  refresh();
-}
-void move_cursor_bottom(int* row) {
-  *row = num_rows-1; // last row is a newline
-  move(*row, 0);
-  refresh();
-}
-void move_cursor_top(int* row) {
-  *row= 0;
-  move(*row, 0);
-  refresh();
-}
 
 typedef struct {
   int height; // curr term height
@@ -82,10 +52,43 @@ void __viewport_debug(viewport* v){
   return; 
 }
 
-void render(viewport* v, char** text){
-  // if curr_row == v.height and event J:
-  //
-  return;
+void render(viewport* v){
+  clear();
+
+  // info row always pinned at y=0
+  char info[64];
+  snprintf(info, sizeof(info), "fd returned %d results", v->total_rows);
+  mvaddstr(0, 0, info);
+
+  int rows_fit = v->height; // height is LINES-1 so we never overwrite the info row
+
+  for (int screen_y = 0;
+       screen_y < rows_fit &&
+       v->top_row + screen_y < v->total_rows;
+       screen_y++) {
+
+    int idx= v->top_row + screen_y; // the idx of the ptr which stored the correct fd ouput entry 
+    int padding_left= 10;  // [idx]  padding [entry ]
+    int padding_fmt_left= v->width - padding_left > 1 ? v->width - padding_left : 1;
+
+    char fmt_proc_result[1024]; 
+    snprintf(
+        fmt_proc_result,
+        sizeof(fmt_proc_result),
+        "[%d] %-*.*s",
+        idx,
+        padding_fmt_left, // pad to width
+        padding_fmt_left, // truncate if too long
+        proc_result[idx]
+    );
+    // +1 to skip the info row sitting at y=0
+    mvaddstr(screen_y + 1, 0,
+             fmt_proc_result);
+  }
+
+  // +1 because the info row shifts everything down by one
+  move(v->curr_row - v->top_row + 1, 0);
+  refresh();
 }
 
 int main(int argc, char** argv)
@@ -167,35 +170,32 @@ int main(int argc, char** argv)
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
   // scrollok(stdscr, TRUE);
-
+  halfdelay(1);
   v.height=LINES;
   v.width=COLS;
 
-  // render some text 
-  write_and_refresh(0, 0,"Hello, ncurses!");
-
-  char info[64];
-  snprintf(info, sizeof(info), "rows:%d cols:%d", v.height, v.width);
-  write_and_refresh(0, v.width - strlen(info) - 1, info);
-  // mvaddstr(0, v.width - strlen(info) - 1, info);
-  // refresh();
 
 
-  int row = 1; // track row
-  char buffer[2046]; // store fd output 
+  char buffer[2046]; // read fd output  
 
   while (fgets(buffer, sizeof(buffer), fd_proc) != NULL) {
-    write_and_refresh(row++,0,buffer);
+    proc_result = realloc(proc_result, sizeof(char*) * (proc_result_count + 1)); // store [ptr0|ptr1..]
+    proc_result[proc_result_count] = strdup(buffer); // allocate mem, return ptr to cpy
+    proc_result_count++;
   }
 
-  move(cursor_row, 0); // move cursor to top row
-  refresh();
+  // initialize viewport 
+  v.total_rows = proc_result_count;
+  v.top_row    = 0;
+  v.curr_row   = 0;
+  v.height     = LINES - 1; // -1 reserves row 0 for the info line
+  render(&v);
              
   char last_key =' '; // to keep track of paired strokes like `gg`
 
   // keep alive until user presses <ctrl> c 
   for (;;) {
-    if(!running) break;
+    if (!running) break;
     int c = getch(); // key event 
 
     // right now we only track keys
@@ -206,22 +206,39 @@ int main(int argc, char** argv)
     switch (c) {
     case 'j':
       last_key=' ';
-      move_cursor_down(&cursor_row);
-      // write_and_refresh(row++, 0, "[KEY]J pressed");
+      if (v.curr_row + 1 < v.total_rows) {
+        v.curr_row++;
+        // scroll down when cursor hits the bottom of the visible window
+        if (v.curr_row >= v.top_row + v.height)
+          v.top_row++;
+      }
+      render(&v);
       break;
     case 'k':
       last_key=' ';
-      move_cursor_up(&cursor_row);
-      // write_and_refresh(row++, 0, "[KEY]K pressed");
+      if (v.curr_row > 0) {
+        v.curr_row--;
+        // scroll up when cursor moves above the visible window
+        if (v.curr_row < v.top_row)
+          v.top_row--;
+      }
+      render(&v);
       break;
     case 'G':
       last_key=' ';
-      move_cursor_bottom(&cursor_row);
+      v.curr_row = v.total_rows - 1;
+      // clamp top_row so the last page fills the screen
+      v.top_row = v.total_rows - v.height;
+      if (v.top_row < 0) v.top_row = 0;
+      render(&v);
       break;
 
     case 'g':
       if(last_key == 'g'){
-        move_cursor_top(&cursor_row);
+        v.curr_row = 0;
+        v.top_row  = 0;
+        last_key = ' '; // reset so the next lone 'g' starts a fresh sequence
+        render(&v);
         break;
       }
       else{
@@ -229,7 +246,8 @@ int main(int argc, char** argv)
         break;
       }
     default:
-      last_key=' ';
+      // ERR means halfdelay timed out with no keypress — don't break gg sequence
+      if (c != ERR) last_key = ' ';
       break;
     }
 
@@ -237,7 +255,12 @@ int main(int argc, char** argv)
   }
 
 
-  endwin(); // close window 
+  // close process if open
+  if (fd_proc) pclose(fd_proc);
+  // free all memory pointer to by ptr_i in proc_result 
+  for (int i = 0; i < proc_result_count; i++) free(proc_result[i]);
+  free(proc_result); // free itself
+  endwin();
 
   // __viewport_debug(&v);
 
@@ -247,11 +270,6 @@ int main(int argc, char** argv)
 
 static void finish(int sig)
 {
-
   (void)sig;
-  // close process if open
-  if (fd_proc) pclose(fd_proc);
-  running=0;
-  endwin();
-  exit(0);
+  running = 0;
 }
