@@ -87,7 +87,6 @@ int main(int argc, char** argv)
   (void) noecho();         /* dont echo input */
   (void) cbreak();       /* take input chars one at a time, no wait for \n */
   scrollok(stdscr, TRUE);
-  // curs_set(0);  
 
   // parse args for fdired
   static struct option long_options[] = {
