@@ -19,7 +19,9 @@ Status?
 (2026/05/31) Rendering is mostly done. Implemented viewport to handle lazy-loading for long fd output. Nav with j/k/gg/G works well.
 Next need to implt <enter> to open file $EDITOR. And there needs to be someway to go back to view as well later. 
 Also will make the UI a bit better.
+
 (2026/05/30) Basic render of fd output with ncurses supports j/k/gg/G nav; scrollable viewport not impl yet.
+
 (2026/05/30) Just setup arg parsing. Atp fdired is just an alias for fd. Run as `./fdired [FLAG] [PATTERN] [PATH]`
 
 ## Building from source
