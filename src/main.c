@@ -7,7 +7,6 @@
  * 5. <enter> $EDITOR file or vim file
  *
  */
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -15,6 +14,7 @@
 #include <getopt.h>
 #include <curses.h>
 #include <signal.h>
+#include <stdint.h>
 
 #define DEBUG_CHAR '-'
 
@@ -36,8 +36,8 @@ void __print_debug(char* cmd, int n ){
 
 // helper; y:row, x:col; I have no idea
 // why it isn't the other way round 
-void write_and_refresh(int y, int x , char* str){
-  mvaddstr(y, x, str);
+void write_and_refresh(int y, int x , char* text){
+  mvaddstr(y, x, text);
   refresh();
   num_rows++;
 }
@@ -66,8 +66,30 @@ void move_cursor_top(int* row) {
   refresh();
 }
 
+typedef struct {
+  int height; // curr term height
+  int width; // curr term width
+  int top_row; // first row idx
+  int total_rows; // # of fd results
+  int curr_row; // row where cursor is
+} viewport;
+
+void __viewport_debug(viewport* v){
+  printf("current height:%d and width:%d\n", v->height, v->width);
+  return; 
+}
+
+void render(viewport* v, char** text){
+  return;
+}
+
 int main(int argc, char** argv)
 {
+  // create viewport 
+  viewport v;
+  v.height=100;
+  v.width=100;
+  __viewport_debug(&v);
   // fd params fd [FLAG] [PATTERN] [PATH]
   char flags[512] = "--absolute-path";  //always on  
   const char *pattern = "";
@@ -78,15 +100,6 @@ int main(int argc, char** argv)
   int c; // capture argv
   char* mode= "r"; // mode for popen used to run fd cmd 
                     
-  // source: https://invisible-island.net/ncurses/ncurses-intro.html
-  (void) signal(SIGINT, finish);      /* arrange interrupts to terminate */
-
-  (void) initscr();      /* initialize the curses library */
-  keypad(stdscr, TRUE);  /* enable keyboard mapping */
-  // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
-  (void) noecho();         /* dont echo input */
-  (void) cbreak();       /* take input chars one at a time, no wait for \n */
-  scrollok(stdscr, TRUE);
 
   // parse args for fdired
   static struct option long_options[] = {
@@ -131,7 +144,7 @@ int main(int argc, char** argv)
       path
   );
 
-  // __print_debug(cmd, 100);
+  __print_debug(cmd, 100);
  
   // open process to run fd cmd 
   FILE* fd = popen(cmd, mode);
@@ -141,6 +154,16 @@ int main(int argc, char** argv)
     return -1;
   }
 
+
+  // source: https://invisible-island.net/ncurses/ncurses-intro.html
+  (void) signal(SIGINT, finish);      /* arrange interrupts to terminate */
+
+  (void) initscr();      /* initialize the curses library */
+  keypad(stdscr, TRUE);  /* enable keyboard mapping */
+  // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
+  (void) noecho();         /* dont echo input */
+  (void) cbreak();       /* take input chars one at a time, no wait for \n */
+  scrollok(stdscr, TRUE);
 
   // render some text 
   write_and_refresh(0, 0,"Hello, ncurses!\n");
