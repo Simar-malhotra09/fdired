@@ -21,7 +21,7 @@
 #define DEBUG_CHAR '-'
 static volatile sig_atomic_t running = 1;
 static void finish(int sig);
-static FILE* fd_proc = NULL; // process that run fd 
+static FILE* proc_fd = NULL; // process that run fd 
                              
 char** proc_result= NULL; // store (ptr to) fd results 
 int proc_result_count=0; // fd results count
@@ -152,9 +152,9 @@ int main(int argc, char** argv)
   __print_debug(cmd, 100);
  
   // open process to run fd cmd 
-  fd_proc= popen(cmd, mode);
+  proc_fd= popen(cmd, mode);
 
-  if(!fd_proc){
+  if(!proc_fd){
     fprintf(stderr, "Some error occured!");
     return -1;
   }
@@ -178,7 +178,7 @@ int main(int argc, char** argv)
 
   char buffer[2046]; // read fd output  
 
-  while (fgets(buffer, sizeof(buffer), fd_proc) != NULL) {
+  while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
     proc_result = realloc(proc_result, sizeof(char*) * (proc_result_count + 1)); // store [ptr0|ptr1..]
     proc_result[proc_result_count] = strdup(buffer); // allocate mem, return ptr to cpy
     proc_result_count++;
@@ -245,6 +245,36 @@ int main(int argc, char** argv)
         last_key='g';
         break;
       }
+    
+    // on enter keyevent 
+    case '\n':
+    case '\r':
+    case KEY_ENTER:
+      char file[1024]; // make copy of filepath 
+      snprintf(file, sizeof(file),
+               "%s", proc_result[v.curr_row]);
+
+      file[strcspn(file, "\n")] = '\0'; // strip the null term 
+
+      def_prog_mode(); // save state 
+      endwin(); 
+      
+      // open file with nvim 
+      char cmd[1200];
+      snprintf(cmd, sizeof(cmd),
+               "nvim \"%s\"", file);
+
+      system(cmd);
+
+      // on exit callback restore fdired viewport
+      reset_prog_mode(); 
+      refresh(); 
+      render(&v);
+      break;
+
+    case 'q':
+      // if(proc_open_file) pclose(proc_open_file);
+      running=0;
     default:
       // ERR means halfdelay timed out with no keypress — don't break gg sequence
       if (c != ERR) last_key = ' ';
@@ -256,7 +286,8 @@ int main(int argc, char** argv)
 
 
   // close process if open
-  if (fd_proc) pclose(fd_proc);
+  if (proc_fd) pclose(proc_fd);
+
   // free all memory pointer to by ptr_i in proc_result 
   for (int i = 0; i < proc_result_count; i++) free(proc_result[i]);
   free(proc_result); // free itself
