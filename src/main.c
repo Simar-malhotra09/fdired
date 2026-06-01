@@ -1,13 +1,3 @@
-/*
- * MVP: 
- * 1. run fd with with flags and pos args parsed. Ensure --absolute-path for now
- * 2. parse them 
- * 3. render a text buffer with them 
- * 4. support j/k/gg/G nav
- * 5. <enter> $EDITOR file or vim file
- *
- */
-#include <_stdio.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -18,289 +8,278 @@
 #include <stdint.h>
 #include <signal.h>
 
-#define DEBUG_CHAR '-'
 static volatile sig_atomic_t running = 1;
+static volatile sig_atomic_t resized = 0;
 static void finish(int sig);
-static FILE* proc_fd = NULL; // process that run fd 
-                             
-char** proc_result= NULL; // store (ptr to) fd results 
-int proc_result_count=0; // fd results count
-                         
-void __print_debug(char* cmd, int n ){
-  // debug
-  char debug[n];
-  memset(debug,DEBUG_CHAR , (n-1));
-  debug[n-1]='\0';
+static void handle_resize(int sig);
+static FILE* proc_fd = NULL;
 
-  printf("%s\n", debug);
-  printf("cmd: %s\n", cmd);  
-  printf("%s\n", debug);
-
-}
-
+char** proc_result   = NULL;
+int    proc_result_count = 0;
 
 typedef struct {
-  int height; // curr term height
-  int width; // curr term width
-  int top_row; // first row idx
-  int total_rows; // # of fd results
-  int curr_row; // row where cursor is
+  int height;     // usable rows between header and status bar
+  int width;      // terminal columns
+  int top_row;    // first visible result index
+  int total_rows; // total fd results
+  int curr_row;   // selected result index
 } viewport;
 
-void __viewport_debug(viewport* v){
-  printf("current height:%d and width:%d\n", v->height, v->width);
-  return; 
-}
+// Draw a single result row
+static void draw_entry(int screen_y, int col, const char *raw, int raw_len, int is_sel, int width) {
+  int avail = width - col;
+  if (avail <= 0) return;
 
-void render(viewport* v){
-  clear();
+  if (is_sel) attron(A_REVERSE);
 
-  // info row always pinned at y=0
-  char info[64];
-  snprintf(info, sizeof(info), "fd returned %d results", v->total_rows);
-  mvaddstr(0, 0, info);
+  // locate last '/' 
+  int slash = raw_len - 1;
+  while (slash > 0 && raw[slash] != '/') slash--;
 
-  int rows_fit = v->height; // height is LINES-1 so we never overwrite the info row
+  if (slash > 0) {
+    int dir_len  = slash + 1;   // split into dir and base
+    int base_len = raw_len - dir_len;
+    int total    = dir_len + base_len;
 
-  for (int screen_y = 0;
-       screen_y < rows_fit &&
-       v->top_row + screen_y < v->total_rows;
-       screen_y++) {
+    if (total <= avail) {
+      // everything fits
+      if (!is_sel) attron(A_DIM);
+      mvaddnstr(screen_y, col, raw, dir_len);
+      if (!is_sel) attroff(A_DIM);
+      addnstr(raw + dir_len, base_len);
+      for (int p = total; p < avail; p++) addch(' ');
 
-    int idx= v->top_row + screen_y; // the idx of the ptr which stored the correct fd ouput entry 
-    int padding_left= 10;  // [idx]  padding [entry ]
-    int padding_fmt_left= v->width - padding_left > 1 ? v->width - padding_left : 1;
+    } else if (base_len + 4 <= avail) {
+      // dir too long: ".../[tail]basename"
+      int tail = avail - base_len - 4; // 4 = strlen("…/")
+      if (!is_sel) attron(A_DIM);
+      mvaddnstr(screen_y, col, ".../", 4);
+      if (tail > 0) addnstr(raw + dir_len - tail, tail);
+      if (!is_sel) attroff(A_DIM);
+      addnstr(raw + dir_len, base_len);
 
-    char fmt_proc_result[1024]; 
-    snprintf(
-        fmt_proc_result,
-        sizeof(fmt_proc_result),
-        "[%d] %-*.*s",
-        idx,
-        padding_fmt_left, // pad to width
-        padding_fmt_left, // truncate if too long
-        proc_result[idx]
-    );
-    // +1 to skip the info row sitting at y=0
-    mvaddstr(screen_y + 1, 0,
-             fmt_proc_result);
+    } else {
+      // basename alone too long: truncate it
+      mvaddnstr(screen_y, col, raw + dir_len, avail);
+    }
+  } else {
+    int show = raw_len < avail ? raw_len : avail;
+    mvaddnstr(screen_y, col, raw, show);
+    for (int p = show; p < avail; p++) addch(' ');
   }
 
-  // +1 because the info row shifts everything down by one
-  move(v->curr_row - v->top_row + 1, 0);
+  if (is_sel) attroff(A_REVERSE);
+}
+
+void render(viewport *v) {
+  clear();
+
+  // list # of result by fd
+  char header[1024];
+  snprintf(header, sizeof(header), " fdired  %d result%s",
+           v->total_rows, v->total_rows == 1 ? "" : "s");
+  attron(A_BOLD);
+  mvaddstr(0, 0, header);
+  attroff(A_BOLD);
+
+  if (v->total_rows == 0) {
+    attron(A_DIM);
+    mvaddstr(2, 2, "no results");
+    attroff(A_DIM);
+  } else {
+    for (int sy = 0; sy < v->height && v->top_row + sy < v->total_rows; sy++) {
+      int idx    = v->top_row + sy;
+      int is_sel = (idx == v->curr_row);
+      char *raw  = proc_result[idx];
+      int   rlen = strlen(raw);
+      if (rlen > 0 && raw[rlen - 1] == '\n') rlen--;
+
+      draw_entry(sy + 1, 1, raw, rlen, is_sel, v->width);
+    }
+  }
+
+  // footer status bar
+  char status[1024];
+  int slen = snprintf(status, sizeof(status),
+                      " [%d/%d]  j%c  k%c  gg top  G end  enter open  q quit",
+                      v->total_rows > 0 ? v->curr_row + 1 : 0,
+                      v->total_rows,
+                      (char)40, (char)38);
+  // right-pad to full width
+  while (slen < v->width && slen < (int)sizeof(status) - 1) status[slen++] = ' ';
+  status[slen] = '\0';
+
+  attron(A_REVERSE);
+  mvaddstr(LINES - 1, 0, status);
+  attroff(A_REVERSE);
+
+  if (v->total_rows > 0)
+    move(v->curr_row - v->top_row + 1, 1);
+
   refresh();
 }
 
 int main(int argc, char** argv)
 {
-  // create viewport 
   viewport v;
-  // fd params fd [FLAG] [PATTERN] [PATH]
-  char flags[512] = "--absolute-path";  //always on  
+  char flags[512]    = "--absolute-path";
   const char *pattern = "";
-  const char *path = ".";
+  const char *path    = ".";
+  char cmd[1024];
+  int  c;
 
-  char cmd[1024]; //store cmd for fd
-
-  int c; // capture argv
-  char* mode= "r"; // mode for popen used to run fd cmd 
-                    
-
-  // parse args for fdired
   static struct option long_options[] = {
-      {"hidden",      no_argument,       0, 'H'},
-      {"no-ignore",   no_argument,       0, 'I'},
-      {"glob",        no_argument,       0, 'g'},
-      {"type",        required_argument, 0, 't'},
-      {"extension",   required_argument, 0, 'e'},
-      {"max-depth",   required_argument, 0, 'd'},
+      {"hidden",    no_argument,       0, 'H'},
+      {"no-ignore", no_argument,       0, 'I'},
+      {"glob",      no_argument,       0, 'g'},
+      {"type",      required_argument, 0, 't'},
+      {"extension", required_argument, 0, 'e'},
+      {"max-depth", required_argument, 0, 'd'},
       {0, 0, 0, 0}
   };
   while ((c = getopt_long(argc, argv, "HIt:e:d:g", long_options, NULL)) != -1) {
       switch (c) {
-      case 'H': strncat(flags, " --hidden",    sizeof(flags) - strlen(flags) - 1); break;
-      case 'I': strncat(flags, " --no-ignore", sizeof(flags) - strlen(flags) - 1); break;
-      case 't': strncat(flags, " --type ",     sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,          sizeof(flags) - strlen(flags) - 1); break;
-      case 'e': strncat(flags, " --extension ",sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,          sizeof(flags) - strlen(flags) - 1); break;
-      case 'd': strncat(flags, " --max-depth ",sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,          sizeof(flags) - strlen(flags) - 1); break;
-      case 'g': strncat(flags, " --glob",       sizeof(flags) - strlen(flags) - 1);
-                break;
+      case 'H': strncat(flags, " --hidden",     sizeof(flags) - strlen(flags) - 1); break;
+      case 'I': strncat(flags, " --no-ignore",  sizeof(flags) - strlen(flags) - 1); break;
+      case 't': strncat(flags, " --type ",      sizeof(flags) - strlen(flags) - 1);
+                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
+      case 'e': strncat(flags, " --extension ", sizeof(flags) - strlen(flags) - 1);
+                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
+      case 'd': strncat(flags, " --max-depth ", sizeof(flags) - strlen(flags) - 1);
+                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
+      case 'g': strncat(flags, " --glob",       sizeof(flags) - strlen(flags) - 1); break;
       case '?': return 1;
       }
   }
 
-
-  // if we use --glob, the pattern passed will be the
-  // one searched on.
   if (optind < argc) pattern = argv[optind++];
-  if (optind < argc) path = argv[optind];
+  if (optind < argc) path    = argv[optind];
 
+  snprintf(cmd, sizeof(cmd), "fd %s \"%s\" %s", flags, pattern, path);
 
-  // build cmd for fd
-  snprintf(
-      cmd,
-      sizeof(cmd),
-      "fd %s \"%s\" %s",
-      flags,
-      pattern,
-      path
-  );
-
-  __print_debug(cmd, 100);
- 
-  // open process to run fd cmd 
-  proc_fd= popen(cmd, mode);
-
-  if(!proc_fd){
-    fprintf(stderr, "Some error occured!");
-    return -1;
+  proc_fd = popen(cmd, "r");
+  if (!proc_fd) {
+    fprintf(stderr, "fdired: failed to run fd\n");
+    return 1;
   }
-  // close process if open
+  // handle quit
+  signal(SIGINT,   finish);
+  // handle win resizing 
+  signal(SIGWINCH, handle_resize);
 
-
-  // source: https://invisible-island.net/ncurses/ncurses-intro.html
-  (void) signal(SIGINT, finish);      /* arrange interrupts to terminate */
-
-  (void) initscr();      /* initialize the curses library */
-  keypad(stdscr, TRUE);  /* enable keyboard mapping */
-  // (void) nonl();         /* tell curses not to do NL->CR/NL on output */
-  (void) noecho();         /* dont echo input */
-  (void) cbreak();       /* take input chars one at a time, no wait for \n */
-  // scrollok(stdscr, TRUE);
+  initscr();
+  keypad(stdscr, TRUE);
+  noecho();
+  cbreak();
   halfdelay(1);
-  v.height=LINES;
-  v.width=COLS;
 
-
-
-  char buffer[2046]; // read fd output  
-
+  char buffer[2048];
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
-    proc_result = realloc(proc_result, sizeof(char*) * (proc_result_count + 1)); // store [ptr0|ptr1..]
-    proc_result[proc_result_count] = strdup(buffer); // allocate mem, return ptr to cpy
-    proc_result_count++;
+    proc_result = realloc(proc_result, sizeof(char*) * (proc_result_count + 1));
+    proc_result[proc_result_count++] = strdup(buffer);
   }
 
-  // initialize viewport 
   v.total_rows = proc_result_count;
   v.top_row    = 0;
   v.curr_row   = 0;
-  v.height     = LINES - 1; // -1 reserves row 0 for the info line
-  render(&v);
-             
-  char last_key =' '; // to keep track of paired strokes like `gg`
+  v.width      = COLS;
+  v.height     = LINES - 2; // row 0 = header, LINES-1 = status bar
 
-  // keep alive until user presses <ctrl> c 
+  render(&v);
+
+  char last_key = ' ';
+
   for (;;) {
     if (!running) break;
-    int c = getch(); // key event 
 
-    // right now we only track keys
-    // no user input rendered 
-    
-    // TBD: fix the retard way of adding
-    // last_key at every case
-    switch (c) {
+    // handle terminal resize
+    if (resized) {
+      resized  = 0;
+      endwin();
+      refresh();
+      v.width  = COLS;
+      v.height = LINES - 2;
+      if (v.top_row + v.height <= v.curr_row)
+        v.top_row = v.curr_row - v.height + 1;
+      render(&v);
+    }
+
+    int key = getch();
+
+    switch (key) {
     case 'j':
-      last_key=' ';
+      last_key = ' ';
       if (v.curr_row + 1 < v.total_rows) {
         v.curr_row++;
-        // scroll down when cursor hits the bottom of the visible window
-        if (v.curr_row >= v.top_row + v.height)
-          v.top_row++;
+        if (v.curr_row >= v.top_row + v.height) v.top_row++;
       }
       render(&v);
       break;
+
     case 'k':
-      last_key=' ';
+      last_key = ' ';
       if (v.curr_row > 0) {
         v.curr_row--;
-        // scroll up when cursor moves above the visible window
-        if (v.curr_row < v.top_row)
-          v.top_row--;
+        if (v.curr_row < v.top_row) v.top_row--;
       }
       render(&v);
       break;
+
     case 'G':
-      last_key=' ';
+      last_key   = ' ';
       v.curr_row = v.total_rows - 1;
-      // clamp top_row so the last page fills the screen
-      v.top_row = v.total_rows - v.height;
+      v.top_row  = v.total_rows - v.height;
       if (v.top_row < 0) v.top_row = 0;
       render(&v);
       break;
 
     case 'g':
-      if(last_key == 'g'){
+      if (last_key == 'g') {
         v.curr_row = 0;
         v.top_row  = 0;
-        last_key = ' '; // reset so the next lone 'g' starts a fresh sequence
+        last_key   = ' ';
         render(&v);
-        break;
+      } else {
+        last_key = 'g';
       }
-      else{
-        last_key='g';
-        break;
-      }
-    
-    // on enter keyevent 
+      break;
+
     case '\n':
     case '\r':
     case KEY_ENTER:
-      char file[1024]; // make copy of filepath 
-      snprintf(file, sizeof(file),
-               "%s", proc_result[v.curr_row]);
+      if (v.total_rows == 0) break;
+      char file[1024];
+      snprintf(file, sizeof(file), "%s", proc_result[v.curr_row]);
+      file[strcspn(file, "\n")] = '\0';
 
-      file[strcspn(file, "\n")] = '\0'; // strip the null term 
+      char open_cmd[1200];
+      snprintf(open_cmd, sizeof(open_cmd), "nvim \"%s\"", file);
 
-      def_prog_mode(); // save state 
-      endwin(); 
-      
-      // open file with nvim 
-      char cmd[1200];
-      snprintf(cmd, sizeof(cmd),
-               "nvim \"%s\"", file);
-
-      system(cmd);
-
-      // on exit callback restore fdired viewport
-      reset_prog_mode(); 
-      refresh(); 
+      def_prog_mode();
+      endwin();
+      system(open_cmd);
+      reset_prog_mode();
+      refresh();
       render(&v);
       break;
 
     case 'q':
-      // if(proc_open_file) pclose(proc_open_file);
-      running=0;
+      running = 0;
+      break;
+
     default:
-      // ERR means halfdelay timed out with no keypress — don't break gg sequence
-      if (c != ERR) last_key = ' ';
+      if (key != ERR) last_key = ' ';
       break;
     }
-
-
   }
 
-
-  // close process if open
   if (proc_fd) pclose(proc_fd);
-
-  // free all memory pointer to by ptr_i in proc_result 
   for (int i = 0; i < proc_result_count; i++) free(proc_result[i]);
-  free(proc_result); // free itself
+  free(proc_result);
   endwin();
 
-  // __viewport_debug(&v);
-
   return 0;
-
 }
 
-static void finish(int sig)
-{
-  (void)sig;
-  running = 0;
-}
+static void finish(int sig)       { (void)sig; running = 0; }
+static void handle_resize(int sig){ (void)sig; resized = 1; }
