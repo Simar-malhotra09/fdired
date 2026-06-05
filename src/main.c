@@ -1,20 +1,66 @@
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <getopt.h>
-#include <curses.h>
-#include <signal.h>
-#include <stdint.h>
-#include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <signal.h>
+#include <unistd.h>
+
+#include <curses.h>
+#include <getopt.h>
+
+#define MEM_CHUNK 1024 // how much extra memory to allocate at a time  if needed
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 0;
 
+/* 
+ * By any future mentions of 
+ *
+ * `cmd` or 
+ * `base_cmd` or 
+ * `executable` 
+ *
+ * we refer to the filter whose output you want to display 
+ * eg: in `./fdired grep -rni -L js ~/some_path`
+ * we refer to grep.
+ *
+ * */
+
 FILE*  proc_fd= NULL;          // fd returned by popen to run cmd
 char** proc_result= NULL;     // caputre result from proc_fd
 int    proc_result_count = 0; // # of files returned
+
+
+/*
+ * I stole this idea from nob.h 
+ * I impl a very stripped version of it 
+ * all we need is a dynamically allocable 
+ * array to capture cmd and all its flags 
+ * Could we get away with allocating on the stack?
+ * Absolutely! 
+ * but. 
+*/
+typedef struct {
+  const char **items;
+  size_t count;
+  size_t capacity;
+} Cmd;
+
+// validate cmd 
+// since the point of this tool is to render 
+// a dired like text buffer, we can only support 
+// cmd which return a list of files seperated by newlines
+// either natively or with a flag  
+// at this point we only support these 
+// obv this is infinitely extensible
+typedef enum {
+  FD,        // returns newline sep files
+  GREP,      // needs the -L flag 
+  RG,        // needs the -l flag 
+} AVAILABLE_CMDS;
+
 
 typedef struct {
   int height;     // usable rows between header and status bar
@@ -24,29 +70,22 @@ typedef struct {
   int curr_row;   // selected result index
 } viewport;
 
-typedef enum {
-  FD,        // returns newline sep files
-  GREP,      // needs the -L flag 
-  RG,        // needs the -l flag 
-} AVAILABLE_CMDS;
-
-
 /* 
  * Since I want to keep this project limited to one file
- * forward decalre all fns
- * */
+ * we should forward decalre all functions
+ *
+ */
 
 // signal handlers
 static void finish(int sig);
 static void handle_resize(int sig);
 
-// validate cmd 
-// since the point of this tool is to render 
-// a dired like text buffer, we can only support 
-// cmd which return a list of files seperated by newlines
-// either natively or with a flag  
-//
-//
+// add arg to a base cmd; this can be done infinitely
+int cmd_append(Cmd *cmd, const char *arg);
+// match the base cmd (ie the name of the executable) with enum and inject 
+// the required flags to make it comply with the expected output
+void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type);
+
 // rendering logic
 static void draw_entry(int screen_y, int col, const char *raw, int raw_len, int is_sel, int width); 
 void render(viewport* v);
@@ -147,36 +186,67 @@ void render(viewport *v) {
   refresh();
 }
 
-#define MEM_CHUNK 1024
-
-typedef struct {
-  const char **items;
-  size_t count;
-  size_t capacity;
-} Cmd;
-
+// add arg to a base cmd
+// the base cmd will usually be the name of the executable
+// while args are flags and positional args
 int cmd_append(Cmd *cmd, const char *arg) {
-  if (cmd->count >= cmd->capacity) {
+  if (cmd->count >= cmd->capacity) { // oops need more memory
     cmd->capacity += MEM_CHUNK;
-    cmd->items = realloc(cmd->items, cmd->capacity * sizeof(char *));
+    cmd->items = realloc(cmd->items, cmd->capacity * sizeof(char *)); // realloc only the items arr with with mem increase by 1 MEM_CHUNK
     if (!cmd->items) {
       fprintf(stderr, "Some error with memory allocation\n");
       return 1;
     }
   }
-  cmd->items[cmd->count++] = arg;
+  cmd->items[cmd->count++] = arg; // add arg to chain of cmds
   return 0;
 }
 
+// duplicate flags should not be an issue, atleast for these
+void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type){
+  switch (cmd_type) {
+    case FD:
+      break;
+    case GREP: 
+      cmd_append(cmd, "-L");
+      break;
+    case RG: 
+      cmd_append(cmd, "-l");
+      break;
+  }
+  return; 
+}
+
 int main(int argc, char **argv) {
+  if (argc < 2) {
+    fprintf(stderr, "Usage: %s <fd|grep|rg> [args...]\n", argv[0]);
+    return 1;
+  }
+
   viewport v;
   Cmd cmd = {0};
+  AVAILABLE_CMDS type;
+
+
+  if      (strcmp(argv[1], "fd")   == 0) type = FD;
+  else if (strcmp(argv[1], "grep") == 0) type = GREP;
+  else if (strcmp(argv[1], "rg")   == 0) type = RG;
+  else {
+      fprintf(stderr, "Unknown command: %s\n", argv[1]);
+      return 1;
+  }
 
   // first arg is `./fdired`; no need to capture
   for (int i = 1; i < argc; ++i) {
     cmd_append(&cmd, argv[i]);
   }
 
+  inject_required_flags(&cmd, type);
+  // for(size_t i=0; i<cmd.count; i++){
+  //   printf("%s ", cmd.items[i]);
+  // }
+  // return 0;
+  
   // calc total size needed for proc_cmd
   size_t total_len = 0;
   for (size_t i = 0; i < cmd.count; ++i)
