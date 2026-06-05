@@ -7,15 +7,14 @@
 #include <signal.h>
 #include <stdint.h>
 #include <signal.h>
+#include <stdarg.h>
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 0;
-static void finish(int sig);
-static void handle_resize(int sig);
-static FILE* proc_fd = NULL;
 
-char** proc_result   = NULL;
-int    proc_result_count = 0;
+FILE*  proc_fd= NULL;          // fd returned by popen to run cmd
+char** proc_result= NULL;     // caputre result from proc_fd
+int    proc_result_count = 0; // # of files returned
 
 typedef struct {
   int height;     // usable rows between header and status bar
@@ -25,8 +24,37 @@ typedef struct {
   int curr_row;   // selected result index
 } viewport;
 
+typedef enum {
+  FD,        // returns newline sep files
+  GREP,      // needs the -L flag 
+  RG,        // needs the -l flag 
+} AVAILABLE_CMDS;
+
+
+/* 
+ * Since I want to keep this project limited to one file
+ * forward decalre all fns
+ * */
+
+// signal handlers
+static void finish(int sig);
+static void handle_resize(int sig);
+
+// validate cmd 
+// since the point of this tool is to render 
+// a dired like text buffer, we can only support 
+// cmd which return a list of files seperated by newlines
+// either natively or with a flag  
+//
+//
+// rendering logic
+static void draw_entry(int screen_y, int col, const char *raw, int raw_len, int is_sel, int width); 
+void render(viewport* v);
+
+
 // Draw a single result row
 static void draw_entry(int screen_y, int col, const char *raw, int raw_len, int is_sel, int width) {
+
   int avail = width - col;
   if (avail <= 0) return;
 
@@ -119,49 +147,60 @@ void render(viewport *v) {
   refresh();
 }
 
-int main(int argc, char** argv)
-{
-  viewport v;
-  char flags[512]    = "--absolute-path";
-  const char *pattern = "";
-  const char *path    = ".";
-  char cmd[1024];
-  int  c;
+#define MEM_CHUNK 1024
 
-  static struct option long_options[] = {
-      {"hidden",    no_argument,       0, 'H'},
-      {"no-ignore", no_argument,       0, 'I'},
-      {"glob",      no_argument,       0, 'g'},
-      {"type",      required_argument, 0, 't'},
-      {"extension", required_argument, 0, 'e'},
-      {"max-depth", required_argument, 0, 'd'},
-      {0, 0, 0, 0}
-  };
-  while ((c = getopt_long(argc, argv, "HIt:e:d:g", long_options, NULL)) != -1) {
-      switch (c) {
-      case 'H': strncat(flags, " --hidden",     sizeof(flags) - strlen(flags) - 1); break;
-      case 'I': strncat(flags, " --no-ignore",  sizeof(flags) - strlen(flags) - 1); break;
-      case 't': strncat(flags, " --type ",      sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
-      case 'e': strncat(flags, " --extension ", sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
-      case 'd': strncat(flags, " --max-depth ", sizeof(flags) - strlen(flags) - 1);
-                strncat(flags, optarg,           sizeof(flags) - strlen(flags) - 1); break;
-      case 'g': strncat(flags, " --glob",       sizeof(flags) - strlen(flags) - 1); break;
-      case '?': return 1;
-      }
+typedef struct {
+  const char **items;
+  size_t count;
+  size_t capacity;
+} Cmd;
+
+int cmd_append(Cmd *cmd, const char *arg) {
+  if (cmd->count >= cmd->capacity) {
+    cmd->capacity += MEM_CHUNK;
+    cmd->items = realloc(cmd->items, cmd->capacity * sizeof(char *));
+    if (!cmd->items) {
+      fprintf(stderr, "Some error with memory allocation\n");
+      return 1;
+    }
+  }
+  cmd->items[cmd->count++] = arg;
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  viewport v;
+  Cmd cmd = {0};
+
+  // first arg is `./fdired`; no need to capture
+  for (int i = 1; i < argc; ++i) {
+    cmd_append(&cmd, argv[i]);
   }
 
-  if (optind < argc) pattern = argv[optind++];
-  if (optind < argc) path    = argv[optind];
+  // calc total size needed for proc_cmd
+  size_t total_len = 0;
+  for (size_t i = 0; i < cmd.count; ++i)
+    total_len += strlen(cmd.items[i]) + 1;
 
-  snprintf(cmd, sizeof(cmd), "fd %s \"%s\" %s", flags, pattern, path);
+  // init proc_cmd with that size
+  char proc_cmd[total_len];
+  proc_cmd[0] = '\0';
+  
+  // capture cmd to run with popen
+  for (size_t i = 0; i < cmd.count; ++i) {
+    strcat(proc_cmd, cmd.items[i]);
+    if (i < cmd.count - 1)
+      strcat(proc_cmd, " ");
+  }
 
-  proc_fd = popen(cmd, "r");
+  free(cmd.items);
+
+  proc_fd = popen(proc_cmd, "r");
   if (!proc_fd) {
     fprintf(stderr, "fdired: failed to run fd\n");
     return 1;
   }
+
   // handle quit
   signal(SIGINT,   finish);
   // handle win resizing 
