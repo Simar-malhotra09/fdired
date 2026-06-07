@@ -56,6 +56,7 @@ typedef struct {
 // at this point we only support these 
 // obv this is infinitely extensible
 typedef enum {
+  FIND,      // returns newline sep files 
   FD,        // returns newline sep files
   GREP,      // needs the -L flag 
   RG,        // needs the -l flag 
@@ -206,7 +207,9 @@ int cmd_append(Cmd *cmd, const char *arg) {
 void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type){
   switch (cmd_type) {
     case FD:
+    case FIND: 
       break;
+
     case GREP: 
       cmd_append(cmd, "-L");
       break;
@@ -229,6 +232,7 @@ int main(int argc, char **argv) {
 
 
   if      (strcmp(argv[1], "fd")   == 0) type = FD;
+  else if (strcmp(argv[1], "find") == 0) type = FIND;
   else if (strcmp(argv[1], "grep") == 0) type = GREP;
   else if (strcmp(argv[1], "rg")   == 0) type = RG;
   else {
