@@ -236,7 +236,11 @@ int main(int argc, char **argv) {
   else if (strcmp(argv[1], "grep") == 0) type = GREP;
   else if (strcmp(argv[1], "rg")   == 0) type = RG;
   else {
-      fprintf(stderr, "Unknown command: %s\n", argv[1]);
+      fprintf(stderr, "Unknown command: %s.\n We currently only support the following:\n\
+          FIND\n\
+          FD\n\ 
+          GREP\n\
+          RG\n", argv[1]);
       return 1;
   }
 
@@ -260,7 +264,7 @@ int main(int argc, char **argv) {
   char proc_cmd[total_len];
   proc_cmd[0] = '\0';
   
-  // capture cmd to run with popen
+  // copy cmd in a text buffer to run 
   for (size_t i = 0; i < cmd.count; ++i) {
     strcat(proc_cmd, cmd.items[i]);
     if (i < cmd.count - 1)
@@ -286,7 +290,7 @@ int main(int argc, char **argv) {
   cbreak();
   halfdelay(1);
 
-  char buffer[2048];
+  char buffer[2048]; // capture output of proc_cmd
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
     proc_result = realloc(proc_result, sizeof(char*) * (proc_result_count + 1));
     proc_result[proc_result_count++] = strdup(buffer);
