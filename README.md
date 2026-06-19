@@ -2,7 +2,7 @@
 Mix of fd and Emacs' Dired
 
 <p align="center">
-  <img src="assets/demo.mp4" width="900">
+  <img src="assets/demo.gif" width="900">
 </p>
 
 ## Context
