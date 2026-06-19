@@ -16,6 +16,9 @@ What is the nob.h file? [no-build](https://github.com/tsoding/nob.h)
 
 Status? 
 
+(2026/06/19) I've expanded the scope from just supporting fd to any utility that outputs atleast a newline seperated filepath (+ more like grep/rg). 
+Currently we can support find, fd, grep, rg. We inject some flags at runtime to ensure we get the output in the desired format. 
+
 (2026/06/01) Minimal UI improvements; add status bar at the bottom 
 
 (2026/05/31) Rendering is mostly done. Implemented viewport to handle lazy-loading for long fd output. Nav with j/k/gg/G works well.
