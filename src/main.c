@@ -429,11 +429,19 @@ int main(int argc, char **argv) {
 
   /* capture output of proc_cmd */
   char buffer[2048];
+  FILE *f = fopen("debug.txt", "w");
+  if (f == NULL)
+  {
+      printf("Error opening file!\n");
+      exit(1);
+  }
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
-    char        *line = strdup(buffer);
-    SearchResult r    = parse_single_output(line, type);
+    char *line = strdup(buffer);
+    fprintf(f,"%s\n",line);
+    SearchResult r = parse_single_output(line, type);
     output_append(&output, r);
   }
+  fclose(f);
 
   v.total_rows = (int)output.count;
   v.top_row    = 0;
