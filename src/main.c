@@ -82,6 +82,46 @@ typedef enum {
 } AVAILABLE_CMDS;
 
 
+
+/* viewport describes the terminal area used for the result list */
+typedef struct {
+  int height;     /* usable rows between header and status bar */
+  int width;      /* terminal columns */
+  int top_row;    /* first visible result index */
+  int total_rows; /* total fd results */
+  int curr_row;   /* selected result index */
+} viewport;
+
+
+
+/*
+ * Since I want to keep this project limited to one file
+ * we should forward decalre all functions
+ */
+
+/* signal handlers */
+static void finish(int sig);
+static void handle_resize(int sig);
+
+/* add arg to a base cmd; this can be done infinitely */
+int cmd_append(Cmd *cmd, const char *arg);
+
+/* match the base cmd with enum and inject the required flags */
+void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type);
+
+/* parse each line of the output by the utility one by one */ 
+SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd); 
+
+/* append a parsed result into UtilityOutput, growing as needed */
+int output_append(UtilityOutput *out, SearchResult r);
+
+static void draw_entry(int screen_y, int col, SearchResult *r, int is_sel, int width, AVAILABLE_CMDS cmd_type); 
+void render(viewport* v, UtilityOutput *out, AVAILABLE_CMDS cmd_type);
+
+
+
+
+
 SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
 {
   SearchResult result = {
@@ -112,7 +152,7 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
     *second_colon         = ':';
 
     /* TODO: parse the matched line here as well. */
-    result.matched_line= senc
+    result.matched_line = second_colon + 1;
 
     return result;
   }
@@ -130,44 +170,6 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
     return result;
   }
 }
-
-/* viewport describes the terminal area used for the result list */
-typedef struct {
-  int height;     /* usable rows between header and status bar */
-  int width;      /* terminal columns */
-  int top_row;    /* first visible result index */
-  int total_rows; /* total fd results */
-  int curr_row;   /* selected result index */
-} viewport;
-
-
-
-/*
- * Since I want to keep this project limited to one file
- * we should forward decalre all functions
- */
-
-/* signal handlers */
-static void finish(int sig);
-static void handle_resize(int sig);
-
-/* add arg to a base cmd; this can be done infinitely */
-int cmd_append(Cmd *cmd, const char *arg);
-
-/* match the base cmd with enum and inject the required flags */
-void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type);
-
-/* append a parsed result into UtilityOutput, growing as needed */
-int output_append(UtilityOutput *out, SearchResult r);
-
-static void draw_entry(int screen_y, int col, SearchResult *r, int is_sel, int width, AVAILABLE_CMDS cmd_type); 
-void render(viewport* v, UtilityOutput *out, AVAILABLE_CMDS cmd_type);
-
-
-
-
-
-
 
 /* Draw a single result row */
 static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, int width, AVAILABLE_CMDS cmd_type) {
@@ -188,9 +190,12 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
   if ((cmd_type == GREP || cmd_type == RG) && result->file_end >= 0) {
     /* suffix = "... :linenum:matched_text"
      * dim it to separate from path */
-    suffix     = result->display + result->file_end;
+
+    // suffix     = result->display + result->file_end;
+    suffix     = result->matched_line;
     suffix_len = (int)strlen(suffix);
     /* strip trailing newline from suffix length */
+    /* THIS COULD BE THE CULPRIT */ 
     while (suffix_len > 0 && suffix[suffix_len - 1] == '\n') suffix_len--;
   }
 
