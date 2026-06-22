@@ -35,10 +35,11 @@ FILE*  proc_fd= NULL;
 
 /* one parsed line of output from the underlying utility */
 typedef struct {
-  char *display;   /* raw line from popen, owned (strdup'd) */
-  char *file;      /* points into display; NOT separately allocated */
-  int   file_end;  /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
-  int   line_num;  /* line number from grep/rg output, -1 otherwise */
+  char *display;      /* raw line from popen, owned (strdup'd) */
+  char *file;         /* points into display where the filepath starts */
+  char *matched_line; /* points into display where the matched line start if present */
+  int   file_end;     /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
+  int   line_num;     /* line number from grep/rg output, -1 otherwise */
 } SearchResult;
 
 /* dynamic array holding every parsed line returned by the command */
@@ -84,29 +85,34 @@ typedef enum {
 SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
 {
   SearchResult result = {
-    .display  = line,
-    .file     = line,  /* default: whole line is the file */
-    .file_end = -1,
-    .line_num = -1,
+    .display      = line,
+    .file         = line,  /* default: whole line is the file */
+    .matched_line = NULL, 
+    .file_end     = -1,
+    .line_num     = -1,
   };
 
   switch (cmd) {
   case GREP:
   case RG: {
     /* format: filepath:linenum:matched_text */
-    char *first = strchr(line, ':');
-    if (!first) return result;
+    char *first_colon = strchr(line, ':'); /* points to the end of filepath*/
+    if (!first_colon) return result;
 
-    result.file_end = (int)(first - line);
+    result.file_end = (int)(first_colon - line); /* idx to end of filepath 
+                                                    probably we can just store the pointer instead*/ 
 
-    char *line_start = first + 1;
-    char *second     = strchr(line_start, ':');
-    if (!second) return result;
+    char *num_start = first_colon + 1; 
+    char *second_colon = strchr(num_start, ':');
+    if (!second_colon) return result;
 
     /* temporarily null-terminate to parse line number */
-    *second         = '\0';
-    result.line_num = atoi(line_start);
-    *second         = ':';
+    *second_colon         = '\0';
+    result.line_num       = atoi(num_start);
+    *second_colon         = ':';
+
+    /* TODO: parse the matched line here as well. */
+    result.matched_line= senc
 
     return result;
   }
@@ -226,7 +232,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
         total_display_str_len 
         : total_path_len;
 
-      for (int p = drawn; p < avail; p++) addch(' ');
+      for (int p = drawn; p < avail; p++) addch('.');
 
     } else if (base_len + 4 <= avail) {
       /* dir too long: ".../[tail]basename" */
