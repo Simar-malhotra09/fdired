@@ -9,6 +9,7 @@
 
 #include <curses.h>
 #include <getopt.h>
+#include <locale.h>
 
 /* how much extra memory to allocate at a time if needed */
 #define MEM_CHUNK 1024
@@ -198,7 +199,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
 
   int linenum_str_len = 0;
   if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
-    linenum_str_len = snprintf(NULL, 0, ":%d:", result->line_num);
+    linenum_str_len = snprintf(NULL, 0, ":%d: ", result->line_num);
   }
 
   const char *raw_display_str = result->display;
@@ -218,7 +219,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
       mvaddnstr(screen_y, col, raw_display_str, dir_len);
       if (!is_sel) attroff(A_DIM);
       addnstr(raw_display_str + dir_len, base_len);
-      printw(":%d:", result->line_num);
+      printw(":%d: ", result->line_num);
 
       /* append suffix dimmed if room */
       if (suffix && suffix_len > 0 ) {
@@ -316,10 +317,9 @@ void render(viewport *v, UtilityOutput *out, AVAILABLE_CMDS cmd_type) {
   /* footer status bar */
   char status[1024];
   int slen = snprintf(status, sizeof(status),
-                      " [%d/%d]  j%c  k%c  gg top  G end  enter open  q quit",
+                      " [%d/%d]  j↓  k↑  gg top  G end  enter open  q quit",
                       v->total_rows > 0 ? v->curr_row + 1 : 0,
-                      v->total_rows,
-                      (char)40, (char)38);
+                      v->total_rows);
   /* right-pad to full width */
   while (slen < v->width && slen < (int)sizeof(status) - 1) status[slen++] = ' ';
   status[slen] = '\0';
@@ -443,6 +443,8 @@ int main(int argc, char **argv) {
   /* handle win resizing */
   signal(SIGWINCH, handle_resize);
 
+
+  setlocale(LC_ALL, "");
   initscr();
   start_color();
   init_pair(PATTERN_MATCH_PAIR, COLOR_RED, COLOR_BLACK);keypad(stdscr, TRUE);
