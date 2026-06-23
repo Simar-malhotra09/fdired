@@ -201,7 +201,6 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
     linenum_str_len = snprintf(NULL, 0, ":%d:", result->line_num);
   }
 
-  int total_display_str_len = (int)path_len + linenum_str_len + (int)suffix_len;
   const char *raw_display_str = result->display;
 
   /* locate last '/' */
@@ -269,10 +268,10 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
       mvaddnstr(screen_y, col, raw_display_str + dir_len, avail);
     }
   } else {
-    int show = path_len < avail ? path_len : avail;
+    int show = (int)path_len < avail ? path_len : avail;
     mvaddnstr(screen_y, col, raw_display_str, show);
     /* render suffix if exists */ 
-    if (suffix && suffix_len > 0 && show + suffix_len <= avail) {
+    if (suffix && suffix_len > 0 && show + (int)suffix_len <= avail) {
       if (!is_sel) {
         attron(A_DIM);
         attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
@@ -283,7 +282,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
         attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
       }
     }
-    int drawn = (suffix && suffix_len > 0 && show + suffix_len <= avail)
+    int drawn = (suffix && (int)suffix_len > 0 && show + (int)suffix_len <= avail)
                   ? show + suffix_len : show;
     for (int p = drawn; p < avail; p++) addch(' ');
   }
