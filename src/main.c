@@ -11,14 +11,13 @@
 #include <getopt.h>
 #include <locale.h>
 
-/* how much extra memory to allocate at a time if needed */
-#define MEM_CHUNK 1024
-#define PATTERN_MATCH_PAIR 1 
-#define LINE_NUM_PAIR 2
+#define MEM_CHUNK 1024 /* how much extra memory to allocate at a time if needed */
+#define PATTERN_MATCH_PAIR 1 /* color for highlighting matched line */
+#define LINE_NUM_PAIR 2 /* color for highlighting line number */
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 0;
-
+int min(int a, int b) { return (a < b)? a: b; } 
 /*
  * By any future mentions of
  *
@@ -37,11 +36,12 @@ FILE*  proc_fd= NULL;
 
 /* one parsed line of output from the underlying utility */
 typedef struct {
-  char *display;      /* raw line from popen, owned (strdup'd) */
-  char *file;         /* points into display where the filepath starts */
-  char *matched_line; /* points into display where the matched line start if present */
-  int   file_end;     /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
-  int   line_num;     /* line number from grep/rg output, -1 otherwise */
+  char *display;        /* raw line from popen, owned (strdup'd) */
+  char *file;           /* points into display where the filepath starts */
+  char *matched_line;   /* points into display where the matched line start if present */
+  char *matched_substr; /* points into matched_line where the exact patterrn match exists */
+  int   file_end;       /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
+  int   line_num;       /* line number from grep/rg output, -1 otherwise */
 } SearchResult;
 
 /* dynamic array holding every parsed line returned by the command */
@@ -112,26 +112,27 @@ int cmd_append(Cmd *cmd, const char *arg);
 void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type);
 
 /* parse each line of the output by the utility one by one */ 
-SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd); 
+SearchResult parse_single_output(char *line,char *pattern,  AVAILABLE_CMDS cmd); 
 
 /* append a parsed result into UtilityOutput, growing as needed */
 int output_append(UtilityOutput *out, SearchResult r);
 
-static void draw_entry(int screen_y, int col, SearchResult *r, int is_sel, int width, AVAILABLE_CMDS cmd_type); 
-void render(viewport* v, UtilityOutput *out, AVAILABLE_CMDS cmd_type);
+static void draw_entry(int screen_y, int col, SearchResult *r,char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type); 
+void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type);
 
 
 
 
 
-SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
+SearchResult parse_single_output(char *line,char *pattern, AVAILABLE_CMDS cmd)
 {
   SearchResult result = {
-    .display      = line,
-    .file         = line,  /* default: whole line is the file */
-    .matched_line = NULL, 
-    .file_end     = -1,
-    .line_num     = -1,
+    .display        = line,
+    .file           = line,  /* default: whole line is the file */
+    .matched_line   = NULL, 
+    .matched_substr = NULL,
+    .file_end       = -1,
+    .line_num       = -1,
   };
 
   switch (cmd) {
@@ -157,6 +158,7 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
     while (*result.matched_line == ' ' || *result.matched_line == '\t')
       result.matched_line++;
 
+    result.matched_substr= strstr(result.matched_line, pattern);
     return result;
   }
 
@@ -175,7 +177,7 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
 }
 
 /* Draw a single result row */
-static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, int width, AVAILABLE_CMDS cmd_type) {
+static void draw_entry(int screen_y, int col, SearchResult *result, char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type) {
   int avail = width - col;
   if (avail <= 0) return;
   if (is_sel) attron(A_REVERSE);
@@ -184,23 +186,27 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
    * for fd/find: file_end is end of string, no suffix
    */
   size_t   path_len   = (result->file_end >= 0) ? result->file_end : strlen(result->display);
-  char *suffix     = NULL;
-  size_t  suffix_len = 0;
+  int linenum_str_len = 0;
+  int pre_match_len = 0;
+  int match_len = 0;
+  int post_match_len = 0;
+  if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
+    linenum_str_len = snprintf(NULL, 0, ":%d: ", result->line_num);
+    pre_match_len  = result->matched_substr - result->matched_line;
+    match_len      = strlen(pattern);
+    post_match_len = strlen(result->matched_line) - pre_match_len - match_len;
 
+  }
+  char* suffix=NULL;
+  int suffix_len=0;
+  
   if ((cmd_type == GREP || cmd_type == RG) && result->file_end >= 0) {
-    /* suffix = "... :linenum:matched_text"
+    /* suffix= pre match substr + match substr + post match substr
      * dim it to separate from path */
-    // suffix     = result->display + result->file_end;
     suffix     = result->matched_line;
     suffix_len = strlen(suffix);
     /* strip trailing newline from suffix length */
-    /* THIS COULD BE THE CULPRIT */ 
     while (suffix_len > 0 && suffix[suffix_len - 1] == '\n') suffix_len--;
-  }
-
-  int linenum_str_len = 0;
-  if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
-    linenum_str_len = snprintf(NULL, 0, ":%d: ", result->line_num);
   }
 
   const char *raw_display_str = result->display;
@@ -233,28 +239,41 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
         int suffix_budget = avail - (int)path_len - linenum_str_len;
         if (suffix_budget > 0) {
           int draw_len = ((int)suffix_len <= suffix_budget) ? (int)suffix_len : suffix_budget;
-          if (!is_sel) {
-            // attron(A_DIM);
+          int remaining = draw_len;
+
+          int n = min(pre_match_len, remaining);
+          addnstr(suffix, n);
+          remaining -= n;
+
+          if (remaining > 0) {
+            // if (!is_sel) {
+            //   attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+            // }
             attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
-          }
-          // printw(" ");
-          if (draw_len < (int)suffix_len) {
-            addnstr(suffix, draw_len - 3);
-            addnstr("...", 3);
-          } else {
-            addnstr(suffix, draw_len);
-          }
-          if (!is_sel) {
-            // attroff(A_DIM);
+            n = min(match_len, remaining);
+            addnstr(suffix + pre_match_len, n);
+            remaining -= n;
             attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+            // if (!is_sel) {
+            //   attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+            // }
+          }
+
+          if (remaining > 0) {
+            n = min(post_match_len, remaining);
+            addnstr(suffix + pre_match_len + match_len, n);
+            remaining -= n;
+          }
+
+          if (draw_len < (int)suffix_len) {
+            addnstr("...", min(3, avail));
           }
         } else if (suffix_budget == 0) {
-            if (!is_sel) attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
-            addnstr("...",3);
-            if (!is_sel) attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+          if (!is_sel) attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+          addnstr("...", 3);
+          if (!is_sel) attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
         }
       }
-
       /* pad remainder */
       int drawn = (int)path_len + linenum_str_len;
       if (suffix && suffix_len > 0) {
@@ -298,7 +317,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
 }
 
 /* rendering logic */
-void render(viewport *v, UtilityOutput *out, AVAILABLE_CMDS cmd_type) {
+void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type) {
   clear();
 
   /* list # of result by fd */
@@ -317,7 +336,7 @@ void render(viewport *v, UtilityOutput *out, AVAILABLE_CMDS cmd_type) {
     for (int sy = 0; sy < v->height && v->top_row + sy < v->total_rows; sy++) {
       int idx    = v->top_row + sy;
       int is_sel = (idx == v->curr_row);
-      draw_entry(sy + 1, 1, &out->items[idx], is_sel, v->width, cmd_type);
+      draw_entry(sy + 1, 1, &out->items[idx],pattern, is_sel, v->width, cmd_type);
     }
   }
 
@@ -414,10 +433,26 @@ int main(int argc, char **argv) {
       return 1;
   }
 
+  /* (1) utility name (2) positional arg #1 pattern (3) positional arg #2 search_path*/
+  char *pos_args[3];
+  int n_pos = 0;
+  FILE *f = fopen("debug.txt", "w");
+  if (f == NULL)
+  {
+    printf("Error opening file!\n");
+    exit(1);
+  }
+
   /* first arg is `./fdired`; no need to capture */
   for (int i = 1; i < argc; ++i) {
+    /* capture the positional arg for some reason */ 
+    if (argv[i][0] != '-' && n_pos < 3) {
+      pos_args[n_pos++] = argv[i]; // two pointers to same data?? 
+      fprintf(f,"pos arg #%d, %s\n",n_pos, argv[i]);
+    }
     cmd_append(&cmd, argv[i]);
   }
+  fclose(f);
 
   inject_required_flags(&cmd, type);
 
@@ -463,19 +498,19 @@ int main(int argc, char **argv) {
 
   /* capture output of proc_cmd */
   char buffer[2048];
-  FILE *f = fopen("debug.txt", "w");
-  if (f == NULL)
-  {
-      printf("Error opening file!\n");
-      exit(1);
-  }
+  // FILE *f = fopen("debug.txt", "w");
+  // if (f == NULL)
+  // {
+  //     printf("Error opening file!\n");
+  //     exit(1);
+  // }
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
     char *line = strdup(buffer);
-    fprintf(f,"%s\n",line);
-    SearchResult r = parse_single_output(line, type);
+    // fprintf(f,"%s\n",line);
+    SearchResult r = parse_single_output(line,pos_args[1], type);
     output_append(&output, r);
   }
-  fclose(f);
+  // fclose(f);
 
   v.total_rows = (int)output.count;
   v.top_row    = 0;
@@ -484,7 +519,7 @@ int main(int argc, char **argv) {
   /* row 0 = header, LINES-1 = status bar */
   v.height     = LINES - 2;
 
-  render(&v, &output, type);
+  render(&v, &output,pos_args[1], type);
 
   char last_key = ' ';
 
@@ -500,7 +535,7 @@ int main(int argc, char **argv) {
       v.height = LINES - 2;
       if (v.top_row + v.height <= v.curr_row)
         v.top_row = v.curr_row - v.height + 1;
-      render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
     }
 
     int key = getch();
@@ -512,7 +547,7 @@ int main(int argc, char **argv) {
         v.curr_row++;
         if (v.curr_row >= v.top_row + v.height) v.top_row++;
       }
-      render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
       break;
 
     case 'k':
@@ -521,7 +556,7 @@ int main(int argc, char **argv) {
         v.curr_row--;
         if (v.curr_row < v.top_row) v.top_row--;
       }
-      render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
       break;
 
     case 'G':
@@ -529,7 +564,7 @@ int main(int argc, char **argv) {
       v.curr_row = v.total_rows - 1;
       v.top_row  = v.total_rows - v.height;
       if (v.top_row < 0) v.top_row = 0;
-      render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
       break;
 
     case 'g':
@@ -537,7 +572,7 @@ int main(int argc, char **argv) {
         v.curr_row = 0;
         v.top_row  = 0;
         last_key   = ' ';
-        render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
       } else {
         last_key = 'g';
       }
@@ -571,7 +606,7 @@ int main(int argc, char **argv) {
       system(open_cmd);
       reset_prog_mode();
       refresh();
-      render(&v, &output, type);
+      render(&v, &output,pos_args[1], type);
       break;
     }
 
