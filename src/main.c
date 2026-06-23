@@ -151,8 +151,9 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
     result.line_num       = atoi(num_start);
     *second_colon         = ':';
 
-    /* TODO: parse the matched line here as well. */
     result.matched_line = second_colon + 1;
+    while (*result.matched_line == ' ' || *result.matched_line == '\t')
+      result.matched_line++;
 
     return result;
   }
@@ -173,71 +174,87 @@ SearchResult parse_single_output(char *line, AVAILABLE_CMDS cmd)
 
 /* Draw a single result row */
 static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, int width, AVAILABLE_CMDS cmd_type) {
-
   int avail = width - col;
   if (avail <= 0) return;
-
   if (is_sel) attron(A_REVERSE);
-
   /*
    * for grep/rg: path portion is display[0..file_end], suffix is rest
    * for fd/find: file_end is end of string, no suffix
    */
-  int   path_len   = (result->file_end >= 0) ? result->file_end : (int)strlen(result->display);
+  size_t   path_len   = (result->file_end >= 0) ? result->file_end : strlen(result->display);
   char *suffix     = NULL;
-  int   suffix_len = 0;
+  size_t  suffix_len = 0;
 
   if ((cmd_type == GREP || cmd_type == RG) && result->file_end >= 0) {
     /* suffix = "... :linenum:matched_text"
      * dim it to separate from path */
-
     // suffix     = result->display + result->file_end;
     suffix     = result->matched_line;
-    suffix_len = (int)strlen(suffix);
+    suffix_len = strlen(suffix);
     /* strip trailing newline from suffix length */
     /* THIS COULD BE THE CULPRIT */ 
     while (suffix_len > 0 && suffix[suffix_len - 1] == '\n') suffix_len--;
   }
 
+  int linenum_str_len = 0;
+  if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
+    linenum_str_len = snprintf(NULL, 0, ":%d:", result->line_num);
+  }
+
+  int total_display_str_len = (int)path_len + linenum_str_len + (int)suffix_len;
   const char *raw_display_str = result->display;
 
   /* locate last '/' */
   int slash_idx= path_len - 1;
   while (slash_idx > 0 && raw_display_str[slash_idx] != '/') slash_idx--;
-
   int total_path_len = path_len;
-  int total_display_str_len = total_path_len + suffix_len;
 
   if (slash_idx > 0) {
     int dir_len  = slash_idx + 1;   /* split into dir and base */
     int base_len = path_len - dir_len;
-
     if (total_path_len <= avail) {
+
       /* everything fits */
       if (!is_sel) attron(A_DIM);
       mvaddnstr(screen_y, col, raw_display_str, dir_len);
       if (!is_sel) attroff(A_DIM);
       addnstr(raw_display_str + dir_len, base_len);
+      printw(":%d:", result->line_num);
 
       /* append suffix dimmed if room */
-      if (suffix && suffix_len > 0 && total_display_str_len<= avail) {
-        if (!is_sel) {
-          // attron(A_DIM);
-          attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
-        }
-        addnstr(suffix, suffix_len);
-        if (!is_sel) {
-          // attroff(A_DIM);
-          attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+      if (suffix && suffix_len > 0 ) {
+        int suffix_budget = avail - (int)path_len - linenum_str_len;
+        if (suffix_budget > 0) {
+          int draw_len = ((int)suffix_len <= suffix_budget) ? (int)suffix_len : suffix_budget;
+          if (!is_sel) {
+            // attron(A_DIM);
+            attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+          }
+          // printw(" ");
+          if (draw_len < (int)suffix_len) {
+            addnstr(suffix, draw_len - 3);
+            addnstr("...", 3);
+          } else {
+            addnstr(suffix, draw_len);
+          }
+          if (!is_sel) {
+            // attroff(A_DIM);
+            attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+          }
+        } else if (suffix_budget == 0) {
+            if (!is_sel) attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+            addnstr("...",3);
+            if (!is_sel) attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
         }
       }
 
       /* pad remainder */
-      int drawn = (suffix && suffix_len > 0 && total_display_str_len<= avail) ?
-        total_display_str_len 
-        : total_path_len;
-
-      for (int p = drawn; p < avail; p++) addch('.');
+      int drawn = (int)path_len + linenum_str_len;
+      if (suffix && suffix_len > 0) {
+        int added = ((int)suffix_len <= avail - drawn) ? (int)suffix_len : avail - drawn;
+        if (added > 0) drawn += added;
+      }
+      for (int p = drawn; p < avail; p++) addch(' ');
 
     } else if (base_len + 4 <= avail) {
       /* dir too long: ".../[tail]basename" */
@@ -247,7 +264,6 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
       if (tail > 0) addnstr(raw_display_str + dir_len - tail, tail);
       if (!is_sel) attroff(A_DIM);
       addnstr(raw_display_str+ dir_len, base_len);
-
     } else {
       /* basename alone too long: truncate it */
       mvaddnstr(screen_y, col, raw_display_str + dir_len, avail);
@@ -255,7 +271,6 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
   } else {
     int show = path_len < avail ? path_len : avail;
     mvaddnstr(screen_y, col, raw_display_str, show);
-
     /* render suffix if exists */ 
     if (suffix && suffix_len > 0 && show + suffix_len <= avail) {
       if (!is_sel) {
@@ -268,12 +283,10 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
         attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
       }
     }
-
     int drawn = (suffix && suffix_len > 0 && show + suffix_len <= avail)
                   ? show + suffix_len : show;
     for (int p = drawn; p < avail; p++) addch(' ');
   }
-
   if (is_sel) attroff(A_REVERSE);
 }
 
