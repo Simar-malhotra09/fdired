@@ -14,6 +14,7 @@
 /* how much extra memory to allocate at a time if needed */
 #define MEM_CHUNK 1024
 #define PATTERN_MATCH_PAIR 1 
+#define LINE_NUM_PAIR 2
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 0;
@@ -219,7 +220,13 @@ static void draw_entry(int screen_y, int col, SearchResult *result, int is_sel, 
       mvaddnstr(screen_y, col, raw_display_str, dir_len);
       if (!is_sel) attroff(A_DIM);
       addnstr(raw_display_str + dir_len, base_len);
+      if (!is_sel) {
+        attron(COLOR_PAIR(LINE_NUM_PAIR));
+      }
       printw(":%d: ", result->line_num);
+      if (!is_sel) {
+        attroff(COLOR_PAIR(LINE_NUM_PAIR));
+      }
 
       /* append suffix dimmed if room */
       if (suffix && suffix_len > 0 ) {
@@ -447,7 +454,9 @@ int main(int argc, char **argv) {
   setlocale(LC_ALL, "");
   initscr();
   start_color();
-  init_pair(PATTERN_MATCH_PAIR, COLOR_RED, COLOR_BLACK);keypad(stdscr, TRUE);
+  init_pair(PATTERN_MATCH_PAIR, COLOR_RED, COLOR_BLACK);
+  init_pair(LINE_NUM_PAIR, COLOR_GREEN, COLOR_BLACK);
+  keypad(stdscr, TRUE);
   noecho();
   cbreak();
   halfdelay(1);
