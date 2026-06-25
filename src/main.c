@@ -340,18 +340,40 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
       if (!is_sel) attroff(COLOR_PAIR(LINE_NUM_PAIR));
     }
     /* render suffix if exists */
-    if (suffix && suffix_len > 0 && show + linenum_str_len + (int)suffix_len <= avail) {
-      if (!is_sel) {
-        attron(A_DIM);
-        attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
-      }
-      addnstr(suffix, suffix_len);
-      if (!is_sel) {
-        attroff(A_DIM);
-        attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+    if (suffix && suffix_len > 0) {
+      int suffix_budget = avail - (int)path_len - linenum_str_len;
+      if (suffix_budget > 0) {
+        int draw_len = ((int)suffix_len <= suffix_budget) ? (int)suffix_len : suffix_budget;
+        int remaining = draw_len;
+
+        int n = min(pre_match_len, remaining);
+        addnstr(suffix, n);
+        remaining -= n;
+
+        if (remaining > 0) {
+          attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+          n = min(match_len, remaining);
+          addnstr(suffix + pre_match_len, n);
+          remaining -= n;
+          attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
+        }
+
+        if (remaining > 0) {
+          n = min(post_match_len, remaining);
+          addnstr(suffix + pre_match_len + match_len, n);
+          remaining -= n;
+        }
+
+        if (draw_len < (int)suffix_len) {
+          addnstr("...", min(3, avail));
+        }
+      } else if (suffix_budget == 0) {
+        if (!is_sel) attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
+        addnstr("...", 3);
+        if (!is_sel) attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
       }
     }
-    int drawn = (suffix && (int)suffix_len > 0 && show + linenum_str_len + (int)suffix_len <= avail)
+    int drawn = (suffix && (int)suffix_len > 0 && (int)suffix_len <= avail - (int)path_len - linenum_str_len)
                   ? show + linenum_str_len + suffix_len : show + linenum_str_len;
     for (int p = drawn; p < avail; p++) addch(' ');
   }
@@ -385,7 +407,7 @@ void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_t
   /* footer status bar */
   char status[1024];
   int slen = snprintf(status, sizeof(status),
-                      " [%d/%d]  j↓  k↑  gg top  G end  enter open  q quit",
+                      " [%d/%d]  j↓  k↑  gg top  G end  enter open  tab relative (show relative path) q quit",
                       v->total_rows > 0 ? v->curr_row + 1 : 0,
                       v->total_rows);
   /* right-pad to full width */
