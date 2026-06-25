@@ -44,6 +44,7 @@ typedef struct {
 typedef struct {
   char *display;        /* raw line from popen, owned (strdup'd) */
   char *file;           /* points into display where the filepath starts */
+  char *relative_file;  /* points into file but relative to the input filepath */ 
   char *matched_line;   /* points into display where the matched line start if present */
   char *matched_substr; /* points into matched_line where the exact patterrn match exists */
   int   file_end;       /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
@@ -122,7 +123,7 @@ int cmd_append(Cmd *cmd, const char *arg);
 void inject_required_flags(Cmd* cmd, AVAILABLE_CMDS cmd_type);
 
 /* parse each line of the output by the utility one by one */ 
-SearchResult parse_single_output(char *line,char *pattern,  AVAILABLE_CMDS cmd); 
+SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args, AVAILABLE_CMDS cmd); 
 
 /* append a parsed result into UtilityOutput, growing as needed */
 int output_append(UtilityOutput *out, SearchResult r);
@@ -132,12 +133,16 @@ void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_t
 
 
 
+char* get_file_path_relative_to_input(char *line, InputArgs *input_args){
+  if(strlen(input_args->search_path) == 0 ) return NULL; 
 
-SearchResult parse_single_output(char *line,char *pattern, AVAILABLE_CMDS cmd)
+}
+SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args, AVAILABLE_CMDS cmd)
 {
   SearchResult result = {
     .display        = line,
     .file           = line,  /* default: whole line is the file */
+    .relative_file  = get_file_path_relative_to_input(line, &input_args),
     .matched_line   = NULL, 
     .matched_substr = NULL,
     .file_end       = -1,
