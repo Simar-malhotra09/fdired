@@ -20,6 +20,8 @@ What is the nob.h file? [no-build](https://github.com/tsoding/nob.h)
 
 Status? 
 
+(2026/06/25) Added highlighting to UI. Line numbers in green, matched syntax in red, correct symbols for j/k keys. Fix general issues.  
+
 (2026/06/19) I've expanded the scope from just supporting fd to any utility that outputs atleast a newline seperated filepath (+ more like grep/rg). 
 Currently we can support find, fd, grep, rg. We inject some flags at runtime to ensure we get the output in the desired format. 
 
