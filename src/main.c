@@ -34,6 +34,12 @@ int min(int a, int b) { return (a < b)? a: b; }
 /* fd returned by popen to run cmd */
 FILE*  proc_fd= NULL;
 
+/* Currently just stores the positional args */
+typedef struct {
+  char *pattern;     /* pattern to match in case of grep/rg */
+  char *search_path; /* path where to search */
+}InputArgs; 
+
 /* one parsed line of output from the underlying utility */
 typedef struct {
   char *display;        /* raw line from popen, owned (strdup'd) */
@@ -83,7 +89,11 @@ typedef enum {
   RG,        
 } AVAILABLE_CMDS;
 
-
+/* render full file path for path relative to the input */ 
+typedef enum {
+  PATH_FULL, 
+  PATH_REL_TO_INPUT,
+}PATH_STATE; 
 
 /* viewport describes the terminal area used for the result list */
 typedef struct {
@@ -117,9 +127,8 @@ SearchResult parse_single_output(char *line,char *pattern,  AVAILABLE_CMDS cmd);
 /* append a parsed result into UtilityOutput, growing as needed */
 int output_append(UtilityOutput *out, SearchResult r);
 
-static void draw_entry(int screen_y, int col, SearchResult *r,char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type); 
-void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type);
-
+static void draw_entry(int screen_y, int col, SearchResult *r,char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type, PATH_STATE path_state); 
+void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type, PATH_STATE path_state);
 
 
 
@@ -177,7 +186,7 @@ SearchResult parse_single_output(char *line,char *pattern, AVAILABLE_CMDS cmd)
 }
 
 /* Draw a single result row */
-static void draw_entry(int screen_y, int col, SearchResult *result, char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type) {
+static void draw_entry(int screen_y, int col, SearchResult *result, char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type, PATH_STATE path_state) {
   int avail = width - col;
   if (avail <= 0) return;
   if (is_sel) attron(A_REVERSE);
@@ -319,7 +328,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
 }
 
 /* rendering logic */
-void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type) {
+void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type, PATH_STATE path_state) {
   clear();
 
   /* list # of result by fd */
@@ -338,7 +347,7 @@ void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_t
     for (int sy = 0; sy < v->height && v->top_row + sy < v->total_rows; sy++) {
       int idx    = v->top_row + sy;
       int is_sel = (idx == v->curr_row);
-      draw_entry(sy + 1, 1, &out->items[idx],pattern, is_sel, v->width, cmd_type);
+      draw_entry(sy + 1, 1, &out->items[idx],pattern, is_sel, v->width, cmd_type, path_state);
     }
   }
 
@@ -420,12 +429,12 @@ int main(int argc, char **argv) {
   viewport v;
   Cmd cmd = {0};
   UtilityOutput output = {0};
-  AVAILABLE_CMDS type;
+  AVAILABLE_CMDS cmd_type;
 
-  if      (strcmp(argv[1], "fd")   == 0) type = FD;
-  else if (strcmp(argv[1], "find") == 0) type = FIND;
-  else if (strcmp(argv[1], "grep") == 0) type = GREP;
-  else if (strcmp(argv[1], "rg")   == 0) type = RG;
+  if      (strcmp(argv[1], "fd")   == 0) cmd_type = FD;
+  else if (strcmp(argv[1], "find") == 0) cmd_type = FIND;
+  else if (strcmp(argv[1], "grep") == 0) cmd_type = GREP;
+  else if (strcmp(argv[1], "rg")   == 0) cmd_type = RG;
   else {
       fprintf(stderr, "Unknown command: %s.\n We currently only support the following:\n\
           FIND\n\
@@ -436,27 +445,49 @@ int main(int argc, char **argv) {
   }
 
   /* (1) utility name (2) positional arg #1 pattern (3) positional arg #2 search_path*/
+  InputArgs input_args = {
+    .pattern = "", 
+    .search_path = "", 
+  };
+
   char *pos_args[3];
   int n_pos = 0;
   FILE *f = fopen("debug.txt", "w");
-  if (f == NULL)
-  {
-    printf("Error opening file!\n");
-    exit(1);
-  }
+
+  /* for debugging purposes */ 
+  // if (f == NULL)
+  // {
+  //   printf("Error opening file!\n");
+  //   exit(1);
+  // }
 
   /* first arg is `./fdired`; no need to capture */
   for (int i = 1; i < argc; ++i) {
     /* capture the positional arg for some reason */ 
     if (argv[i][0] != '-' && n_pos < 3) {
       pos_args[n_pos++] = argv[i]; // two pointers to same data?? 
-      fprintf(f,"pos arg #%d, %s\n",n_pos, argv[i]);
+      // fprintf(f,"pos arg #%d, %s\n",n_pos, argv[i]);
     }
     cmd_append(&cmd, argv[i]);
   }
   fclose(f);
 
-  inject_required_flags(&cmd, type);
+  /* TODO! need to audit: umm this is super hacky */
+  switch (cmd_type){
+    case FIND:
+    case FD: 
+      if (n_pos != 2) break;
+      input_args.search_path = pos_args[1]; 
+      break; 
+    case GREP:
+    case RG: 
+      if (n_pos != 3) break; 
+      input_args.pattern = pos_args[1]; 
+      input_args.search_path = pos_args[2];
+      break; 
+  }
+
+  inject_required_flags(&cmd, cmd_type);
 
   /* calc total size needed for proc_cmd */
   size_t total_len = 0;
@@ -509,7 +540,7 @@ int main(int argc, char **argv) {
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
     char *line = strdup(buffer);
     // fprintf(f,"%s\n",line);
-    SearchResult r = parse_single_output(line,pos_args[1], type);
+    SearchResult r = parse_single_output(line,pos_args[1], cmd_type);
     output_append(&output, r);
   }
   // fclose(f);
@@ -521,7 +552,7 @@ int main(int argc, char **argv) {
   /* row 0 = header, LINES-1 = status bar */
   v.height     = LINES - 2;
 
-  render(&v, &output,pos_args[1], type);
+  render(&v, &output,pos_args[1], cmd_type);
 
   char last_key = ' ';
 
@@ -537,7 +568,7 @@ int main(int argc, char **argv) {
       v.height = LINES - 2;
       if (v.top_row + v.height <= v.curr_row)
         v.top_row = v.curr_row - v.height + 1;
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
     }
 
     int key = getch();
@@ -549,7 +580,7 @@ int main(int argc, char **argv) {
         v.curr_row++;
         if (v.curr_row >= v.top_row + v.height) v.top_row++;
       }
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
       break;
 
     case 'k':
@@ -558,7 +589,7 @@ int main(int argc, char **argv) {
         v.curr_row--;
         if (v.curr_row < v.top_row) v.top_row--;
       }
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
       break;
 
     case 'G':
@@ -566,7 +597,7 @@ int main(int argc, char **argv) {
       v.curr_row = v.total_rows - 1;
       v.top_row  = v.total_rows - v.height;
       if (v.top_row < 0) v.top_row = 0;
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
       break;
 
     case 'g':
@@ -574,7 +605,7 @@ int main(int argc, char **argv) {
         v.curr_row = 0;
         v.top_row  = 0;
         last_key   = ' ';
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
       } else {
         last_key = 'g';
       }
@@ -608,7 +639,7 @@ int main(int argc, char **argv) {
       system(open_cmd);
       reset_prog_mode();
       refresh();
-      render(&v, &output,pos_args[1], type);
+      render(&v, &output,pos_args[1], cmd_type);
       break;
     }
 
