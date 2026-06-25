@@ -158,7 +158,7 @@ SearchResult parse_single_output(char *line,char *pattern, AVAILABLE_CMDS cmd)
     while (*result.matched_line == ' ' || *result.matched_line == '\t')
       result.matched_line++;
 
-    result.matched_substr= strstr(result.matched_line, pattern);
+    result.matched_substr= strcasestr(result.matched_line, pattern);
     return result;
   }
 
