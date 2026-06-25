@@ -5,7 +5,7 @@ Mix of fd and Emacs' Dired
   <img src="assets/demo.gif" width="900">
 </p>
 
-## Context
+## Original Scope 
 [fd](https://github.com/sharkdp/fd)
 
 [Emacs' Dired](https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html)
@@ -17,6 +17,15 @@ Why? Something like this probably exists already but I'm unemployed atm.
 Why in C? I'm equally bad with all programming languages.
 
 What is the nob.h file? [no-build](https://github.com/tsoding/nob.h)
+
+## Current Scope 
+Supports 
+- Find 
+- Fd 
+- Grep 
+- Rg 
+
+Ideally we could support any filter that spits out newline seperated filepaths + metadata 
 
 Status? 
 
