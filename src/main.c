@@ -229,7 +229,9 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
       if (!is_sel) {
         attron(COLOR_PAIR(LINE_NUM_PAIR));
       }
-      printw(":%d: ", result->line_num);
+      if(cmd_type== GREP || cmd_type== RG){
+        printw(":%d: ", result->line_num);
+      }
       if (!is_sel) {
         attroff(COLOR_PAIR(LINE_NUM_PAIR));
       }
