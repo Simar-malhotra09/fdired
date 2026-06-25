@@ -407,7 +407,7 @@ void render(viewport *v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_t
   /* footer status bar */
   char status[1024];
   int slen = snprintf(status, sizeof(status),
-                      " [%d/%d]  j↓  k↑  gg top  G end  enter open  tab relative (show relative path) q quit",
+                      " [%d/%d]  j:↓  k:↑  gg: top  G: end  enter: open  tab: show relative path q: quit",
                       v->total_rows > 0 ? v->curr_row + 1 : 0,
                       v->total_rows);
   /* right-pad to full width */
