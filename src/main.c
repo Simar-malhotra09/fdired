@@ -135,7 +135,17 @@ void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_t
 
 char* get_file_path_relative_to_input(char *line, InputArgs *input_args){
   if(strlen(input_args->search_path) == 0 ) return NULL; 
+  char *base = input_args->search_path;
+  char *relative_file = strstr(line, base);
 
+  if (relative_file && relative_file == line){
+    relative_file += strlen(base);
+    relative_file-- ; /* to include the trailing `/` */ 
+  }
+  else
+    relative_file = NULL;
+
+  return relative_file;
 }
 SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args, AVAILABLE_CMDS cmd)
 {
@@ -199,7 +209,20 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
    * for grep/rg: path portion is display[0..file_end], suffix is rest
    * for fd/find: file_end is end of string, no suffix
    */
-  size_t   path_len   = (result->file_end >= 0) ? result->file_end : strlen(result->display);
+  const char *raw_display_str = (path_state == PATH_REL_TO_INPUT && result->relative_file != NULL)
+                                  ? result->relative_file : result->display;
+  size_t path_len;
+  if (path_state == PATH_REL_TO_INPUT && result->relative_file != NULL) {
+    if (result->file_end >= 0) {
+      int offset = (int)(result->relative_file - result->display);
+      path_len = result->file_end - offset;
+    } else {
+      path_len = strlen(result->relative_file);
+      while (path_len > 0 && raw_display_str[path_len - 1] == '\n') path_len--;
+    }
+  } else {
+    path_len = (result->file_end >= 0) ? result->file_end : strlen(result->display);
+  }
   int linenum_str_len = 0;
   int pre_match_len = 0;
   int match_len = 0;
@@ -222,8 +245,6 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
     /* strip trailing newline from suffix length */
     while (suffix_len > 0 && suffix[suffix_len - 1] == '\n') suffix_len--;
   }
-
-  const char *raw_display_str = result->display;
 
   /* locate last '/' */
   int slash_idx= path_len - 1;
@@ -313,8 +334,13 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
   } else {
     int show = (int)path_len < avail ? path_len : avail;
     mvaddnstr(screen_y, col, raw_display_str, show);
-    /* render suffix if exists */ 
-    if (suffix && suffix_len > 0 && show + (int)suffix_len <= avail) {
+    if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
+      if (!is_sel) attron(COLOR_PAIR(LINE_NUM_PAIR));
+      printw(":%d: ", result->line_num);
+      if (!is_sel) attroff(COLOR_PAIR(LINE_NUM_PAIR));
+    }
+    /* render suffix if exists */
+    if (suffix && suffix_len > 0 && show + linenum_str_len + (int)suffix_len <= avail) {
       if (!is_sel) {
         attron(A_DIM);
         attron(COLOR_PAIR(PATTERN_MATCH_PAIR));
@@ -325,8 +351,8 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
         attroff(COLOR_PAIR(PATTERN_MATCH_PAIR));
       }
     }
-    int drawn = (suffix && (int)suffix_len > 0 && show + (int)suffix_len <= avail)
-                  ? show + suffix_len : show;
+    int drawn = (suffix && (int)suffix_len > 0 && show + linenum_str_len + (int)suffix_len <= avail)
+                  ? show + linenum_str_len + suffix_len : show + linenum_str_len;
     for (int p = drawn; p < avail; p++) addch(' ');
   }
   if (is_sel) attroff(A_REVERSE);
@@ -545,7 +571,7 @@ int main(int argc, char **argv) {
   while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
     char *line = strdup(buffer);
     // fprintf(f,"%s\n",line);
-    SearchResult r = parse_single_output(line,pos_args[1], cmd_type);
+    SearchResult r = parse_single_output(line, pos_args[1], input_args, cmd_type);
     output_append(&output, r);
   }
   // fclose(f);
@@ -557,9 +583,10 @@ int main(int argc, char **argv) {
   /* row 0 = header, LINES-1 = status bar */
   v.height     = LINES - 2;
 
-  render(&v, &output,pos_args[1], cmd_type);
-
   char last_key = ' ';
+  PATH_STATE path_state = PATH_FULL;
+
+  render(&v, &output, pos_args[1], cmd_type, path_state);
 
   for (;;) {
     if (!running) break;
@@ -573,7 +600,7 @@ int main(int argc, char **argv) {
       v.height = LINES - 2;
       if (v.top_row + v.height <= v.curr_row)
         v.top_row = v.curr_row - v.height + 1;
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
     }
 
     int key = getch();
@@ -585,7 +612,7 @@ int main(int argc, char **argv) {
         v.curr_row++;
         if (v.curr_row >= v.top_row + v.height) v.top_row++;
       }
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
     case 'k':
@@ -594,7 +621,7 @@ int main(int argc, char **argv) {
         v.curr_row--;
         if (v.curr_row < v.top_row) v.top_row--;
       }
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
     case 'G':
@@ -602,7 +629,7 @@ int main(int argc, char **argv) {
       v.curr_row = v.total_rows - 1;
       v.top_row  = v.total_rows - v.height;
       if (v.top_row < 0) v.top_row = 0;
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
     case 'g':
@@ -610,7 +637,7 @@ int main(int argc, char **argv) {
         v.curr_row = 0;
         v.top_row  = 0;
         last_key   = ' ';
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
       } else {
         last_key = 'g';
       }
@@ -644,9 +671,15 @@ int main(int argc, char **argv) {
       system(open_cmd);
       reset_prog_mode();
       refresh();
-      render(&v, &output,pos_args[1], cmd_type);
+      render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
     }
+
+    case '\t':
+      last_key   = ' ';
+      path_state = (path_state == PATH_FULL) ? PATH_REL_TO_INPUT : PATH_FULL;
+      render(&v, &output, pos_args[1], cmd_type, path_state);
+      break;
 
     case 'q':
       running = 0;
