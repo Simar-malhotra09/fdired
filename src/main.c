@@ -222,16 +222,33 @@ static void draw_entry(
                                   ? result->relative_file : result->display;
   size_t path_len;
   if (path_state == PATH_REL_TO_INPUT && result->relative_file != NULL) {
-    if (result->file_end >= 0) {
-      int offset = (int)(result->relative_file - result->display);
-      path_len = result->file_end - offset;
-    } else {
-      path_len = strlen(result->relative_file);
-      while (path_len > 0 && raw_display_str[path_len - 1] == '\n') path_len--;
+    if (result->file_end>= 0) {
+      char *start = result->relative_file; /* start of rel filepath */ 
+      char *end   = result->display + result->file_end; /* end of filepath */
+      path_len = end - start; 
+
+    }else {
+      char *start = result->relative_file;
+
+      /* find end of line safely 
+       * this eol could be the end of filepath itself in case of 'find/fd'
+       * or not in case or 'grep/rg' since this points into the display cstr*/
+      char *end = strchr(start, '\n');
+      if (!end) end = result->display + strlen(result->display);
+      path_len = end - start;
     }
-  } else {
-    path_len = (result->file_end >= 0) ? result->file_end : strlen(result->display);
+
+  }else {
+    if (result->file_end >= 0) {
+      path_len = result->file_end;
+    } else {
+      char *end = strchr(result->display, '\n');
+      if (!end) end = result->display + strlen(result->display);
+
+      path_len = end - result->display;
+    }
   }
+
   int linenum_str_len = 0;
   int pre_match_len = 0;
   int match_len = 0;
