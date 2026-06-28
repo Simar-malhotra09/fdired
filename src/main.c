@@ -1,3 +1,4 @@
+#include <_stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,6 +12,7 @@
 #include <getopt.h>
 #include <locale.h>
 
+#define BUFFER_SIZE 2048 /* temp buffer that reads output of utility line by line */
 #define MEM_CHUNK 1024 /* how much extra memory to allocate at a time if needed */
 #define PATTERN_MATCH_PAIR 1 /* color for highlighting matched line */
 #define LINE_NUM_PAIR 2 /* color for highlighting line number */
@@ -582,20 +584,43 @@ int main(int argc, char **argv) {
   cbreak();
   halfdelay(1);
 
-  /* capture output of proc_cmd */
-  char buffer[2048];
   // FILE *f = fopen("debug.txt", "w");
   // if (f == NULL)
   // {
   //     printf("Error opening file!\n");
   //     exit(1);
   // }
-  while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
-    char *line = strdup(buffer);
-    // fprintf(f,"%s\n",line);
-    SearchResult r = parse_single_output(line, pos_args[1], input_args, cmd_type);
+ 
+  /* capture output of proc_cmd */
+  char buffer[BUFFER_SIZE];
+
+  // char *line = buffer;
+  char *line = NULL;
+  size_t size = 0;
+  ssize_t nread;
+
+  while ((nread = getline(&line, &size, proc_fd)) != -1) {
+    char *temp_line = strdup(line); 
+    SearchResult r = parse_single_output(temp_line, pos_args[1], input_args, cmd_type);
     output_append(&output, r);
+    free(temp_line);
+    temp_line = NULL;
   }
+
+  if (ferror(proc_fd))
+      perror("getline");
+  if (feof(proc_fd))
+      puts("EOF");
+
+  free(line);
+  line = NULL; 
+
+  // while (fgets(buffer, sizeof(buffer), proc_fd) != NULL) {
+  //   char *line = strdup(buffer);
+  //   // fprintf(f,"%s\n",line);
+  //   SearchResult r = parse_single_output(line, pos_args[1], input_args, cmd_type);
+  //   output_append(&output, r);
+  // }
   // fclose(f);
 
   v.total_rows = (int)output.count;
