@@ -49,6 +49,7 @@ typedef struct {
   char *relative_file;  /* points into file but relative to the input filepath */ 
   char *matched_line;   /* points into display where the matched line start if present */
   char *matched_substr; /* points into matched_line where the exact patterrn match exists */
+  char *matched_substr_end; /* points into matched_line where the exact patterrn match ends */
   int   file_end;       /* end of filepath (grep/rg)/ also end of string (fd/find) */
   int   line_num;       /* line number from grep/rg output, -1 otherwise */
 } SearchResult;
@@ -248,12 +249,14 @@ static void draw_entry(
       path_len = end - result->display;
     }
   }
+  
+  /* for grep/rg only */
+  int linenum_str_len = 0; /* len of line number */
+  int pre_match_len = 0;   /* len before pattern found in line */
+  int match_len = 0;       /* len of the pattern */
+  int post_match_len = 0;  /* len after pattern found in line */ 
 
-  int linenum_str_len = 0;
-  int pre_match_len = 0;
-  int match_len = 0;
-  int post_match_len = 0;
-
+  /* TODO!: we should just store pointers and calc len when we need through pointern arth */ 
   if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
     linenum_str_len = snprintf(NULL, 0, ":%d: ", result->line_num);
     pre_match_len  = result->matched_substr - result->matched_line;
