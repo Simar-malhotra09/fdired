@@ -49,7 +49,7 @@ typedef struct {
   char *relative_file;  /* points into file but relative to the input filepath */ 
   char *matched_line;   /* points into display where the matched line start if present */
   char *matched_substr; /* points into matched_line where the exact patterrn match exists */
-  int   file_end;       /* index of ':' after filepath (grep/rg), or end of string (fd/find) */
+  int   file_end;       /* end of filepath (grep/rg)/ also end of string (fd/find) */
   int   line_num;       /* line number from grep/rg output, -1 otherwise */
 } SearchResult;
 
@@ -130,7 +130,10 @@ SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args,
 /* append a parsed result into UtilityOutput, growing as needed */
 int output_append(UtilityOutput *out, SearchResult r);
 
+/* draw a single row */ 
 static void draw_entry(int screen_y, int col, SearchResult *r,char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type, PATH_STATE path_state); 
+
+/* render state: calls draw_entry over all search results stored in UtilityOutput */ 
 void render(viewport* v, UtilityOutput *out, char *pattern, AVAILABLE_CMDS cmd_type, PATH_STATE path_state);
 
 
@@ -149,6 +152,7 @@ char* get_file_path_relative_to_input(char *line, InputArgs *input_args){
 
   return relative_file;
 }
+
 SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args, AVAILABLE_CMDS cmd)
 {
   SearchResult result = {
@@ -203,9 +207,12 @@ SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args,
 }
 
 /* Draw a single result row */
-static void draw_entry(int screen_y, int col, SearchResult *result, char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type, PATH_STATE path_state) {
+static void draw_entry(
+    int screen_y, int col, SearchResult *result, char *pattern, int is_sel, int width, AVAILABLE_CMDS cmd_type, PATH_STATE path_state) 
+{
   int avail = width - col;
   if (avail <= 0) return;
+
   if (is_sel) attron(A_REVERSE);
   /*
    * for grep/rg: path portion is display[0..file_end], suffix is rest
@@ -229,6 +236,7 @@ static void draw_entry(int screen_y, int col, SearchResult *result, char *patter
   int pre_match_len = 0;
   int match_len = 0;
   int post_match_len = 0;
+
   if ((cmd_type == GREP || cmd_type == RG) && result->line_num >= 0) {
     linenum_str_len = snprintf(NULL, 0, ":%d: ", result->line_num);
     pre_match_len  = result->matched_substr - result->matched_line;
@@ -592,9 +600,8 @@ int main(int argc, char **argv) {
   // }
  
   /* capture output of proc_cmd */
-  char buffer[BUFFER_SIZE];
+  // char buffer[BUFFER_SIZE];
 
-  // char *line = buffer;
   char *line = NULL;
   size_t size = 0;
   ssize_t nread;
@@ -603,7 +610,7 @@ int main(int argc, char **argv) {
     char *temp_line = strdup(line); 
     SearchResult r = parse_single_output(temp_line, pos_args[1], input_args, cmd_type);
     output_append(&output, r);
-    free(temp_line);
+    // free(temp_line);
     temp_line = NULL;
   }
 
