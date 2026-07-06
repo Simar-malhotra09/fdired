@@ -27,7 +27,11 @@ Supports
 
 Ideally we could support any filter that spits out newline seperated filepaths + metadata 
 
+# Why is the progress so slow? 
+As mentioned before, I kinda suck at C and there no AI except for refactoring/checking vulnerabilities occasionally 
+
 Status? 
+(2026/07/05) Added additional func mapped to keys like <Tab>(toggle btw full filepath vs rel), <y>(copy filepath) etc. The parsing logic is terrible and breaks on "abc*". Will fix soon. 
 
 (2026/06/25) Added highlighting to UI. Line numbers in green, matched syntax in red, correct symbols for j/k keys. Fix general issues.  
 
