@@ -538,11 +538,11 @@ int main(int argc, char **argv) {
   FILE *f = fopen("debug.txt", "w");
 
   /* for debugging purposes */ 
-  // if (f == NULL)
-  // {
-  //   printf("Error opening file!\n");
-  //   exit(1);
-  // }
+  if (f == NULL)
+  {
+    printf("Error opening file!\n");
+    exit(1);
+  }
 
   /* first arg is `./fdired`; no need to capture */
   for (int i = 1; i < argc; ++i) {
@@ -553,7 +553,6 @@ int main(int argc, char **argv) {
     }
     cmd_append(&cmd, argv[i]);
   }
-  fclose(f);
 
   /* TODO! need to audit: umm this is super hacky */
   switch (cmd_type){
@@ -680,6 +679,7 @@ int main(int argc, char **argv) {
     int key = getch();
 
     switch (key) {
+    /* go down one row */
     case 'j':
       last_key = ' ';
       if (v.curr_row + 1 < v.total_rows) {
@@ -689,6 +689,7 @@ int main(int argc, char **argv) {
       render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
+    /* go up one row */
     case 'k':
       last_key = ' ';
       if (v.curr_row > 0) {
@@ -698,6 +699,7 @@ int main(int argc, char **argv) {
       render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
+    /* go to the last row */
     case 'G':
       last_key   = ' ';
       v.curr_row = v.total_rows - 1;
@@ -706,6 +708,7 @@ int main(int argc, char **argv) {
       render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
+    /* go to the first row (excluding the top status row ) */
     case 'g':
       if (last_key == 'g') {
         v.curr_row = 0;
@@ -719,6 +722,7 @@ int main(int argc, char **argv) {
 
     case '\n':
     case '\r':
+    /* open file in NVIM and navigate to the line number present in the selected row */
     case KEY_ENTER: {
       if (v.total_rows == 0) break;
       SearchResult *r = &output.items[v.curr_row];
@@ -726,7 +730,7 @@ int main(int argc, char **argv) {
       /* temporarily null-terminate at file_end to isolate the path */
       char saved = '\0';
       if (r->file_end >= 0) {
-        saved                    = r->display[r->file_end];
+        saved = r->display[r->file_end];
         r->display[r->file_end] = '\0';
       }
 
@@ -749,16 +753,43 @@ int main(int argc, char **argv) {
       break;
     }
 
+    /* toggle between fullpath and relative to input path  */
     case '\t':
       last_key   = ' ';
       path_state = (path_state == PATH_FULL) ? PATH_REL_TO_INPUT : PATH_FULL;
       render(&v, &output, pos_args[1], cmd_type, path_state);
       break;
 
+    /* copy filepath to current row to clipboard 
+     * should work with linux/macos at the least */
+    case 'y':
+      if (v.total_rows == 0) break;
+      SearchResult *r = &output.items[v.curr_row];
+
+      /* temporarily null-terminate at file_end to isolate the path */
+      char saved = '\0';
+      if (r->file_end >= 0) {
+        saved = r->display[r->file_end];
+        r->display[r->file_end] = '\0';
+      }
+      // fprintf(f,"[KEYLOG]: y : copy path %s to clipboard \n", r->display);
+      FILE *clip = popen("xclip -selection clipboard 2>/dev/null || pbcopy 2>/dev/null", "w");
+      if (clip) {
+          fputs(r->display, clip);
+          pclose(clip);
+      }
+      /* restore the display string */
+      if (r->file_end >= 0)
+        r->display[r->file_end] = saved;
+
+      break;
+
+    /* exit */ 
     case 'q':
       running = 0;
       break;
-
+    
+    /* for capturing two keystroke patterns like `gg` */
     default:
       if (key != ERR) last_key = ' ';
       break;
@@ -767,6 +798,8 @@ int main(int argc, char **argv) {
 
   if (proc_fd) pclose(proc_fd);
   for (size_t i = 0; i < output.count; i++) free(output.items[i].display);
+  fclose(f);
+
   free(output.items);
   endwin();
 
