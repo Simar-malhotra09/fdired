@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #include <curses.h>
-#include <getopt.h>
+#include <regex.h>
 #include <locale.h>
 
 #define BUFFER_SIZE 2048 /* temp buffer that reads output of utility line by line */
@@ -169,6 +169,31 @@ SearchResult parse_single_output(char *line,char *pattern, InputArgs input_args,
   switch (cmd) {
   case GREP:
   case RG: {
+    regex_t re; 
+    regmatch_t matches[1];
+    regcomp(&re, pattern, REG_EXTENDED); /* look at which cflag to use https://www.man7.org/linux/man-pages/man3/regcomp.3.html#LIBRARY */
+    if (
+        regexec(&re, line, 1, matches, 0) == 0)
+    {
+      FILE *f = fopen("debug.txt", "a");
+
+      /* for debugging purposes */ 
+      if (f == NULL)
+      {
+        printf("Error opening file!\n");
+        exit(1);
+      }
+
+      fprintf(f, "[parse_single_output]: line:%s match: %lld to %lld, and is %.*s\n",
+          line,
+          matches[0].rm_so,
+          matches[0].rm_eo,
+          (int)(matches[0].rm_eo - matches[0].rm_so),
+          line + matches[0].rm_so);
+      fclose(f);
+      f= NULL;
+    }
+
     /* format: filepath:linenum:matched_text */
     char *first_colon = strchr(line, ':'); /* points to the end of filepath*/
     if (!first_colon) return result;
