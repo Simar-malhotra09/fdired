@@ -2,6 +2,7 @@
 #define FDIRED_H
 
 #include "logger.h"
+// #include <cstring>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +48,7 @@ typedef enum {
   FT_PDF,
   FT_IMAGE,
   FT_ASCII,
+  FT_UNKNOWN,
 } FileType;
 
 typedef struct {
@@ -170,7 +172,7 @@ static void render(viewport *v, UtilityOutput *out, char *pattern,
 
 /* match the file into FileType to know how to open it */
 static FileType match_file_type(char *file_path);
-static const char *get_handler_for_file(FileType file_type);
+static const char *get_file_type_handler(FileType file_type);
 
 static char *get_file_path_relative_to_input(char *line,
                                              InputArgs *input_args) {
@@ -189,15 +191,28 @@ static char *get_file_path_relative_to_input(char *line,
 }
 
 static FileType match_file_type(char *file_path) {
-  (void)file_path;
+  char *ext = strrchr(file_path, '.');
+  if (!ext) {
+    return FT_UNKNOWN;
+  }
+  if (strcmp(ext, ".pdf") == 0) {
+    return FT_PDF;
+  }
+
+  if (strcmp(ext, ".png") == 0 || strcmp(ext, ".jpg") == 0 ||
+      strcmp(ext, ".jpeg") == 0) {
+    return FT_IMAGE;
+  }
   return FT_ASCII;
 }
-static const char *get_handler_for_file(FileType file_type) {
+
+static const char *get_file_type_handler(FileType file_type) {
+  if (file_type == FT_UNKNOWN) {
+    exit(1);
+  }
   for (size_t i = 0;
        i < sizeof(file_type_handlers) / sizeof(file_type_handlers[0]); i++) {
     if (file_type_handlers[i].type == file_type) {
-      log_write("file type found: %d, using: %s", file_type,
-                file_type_handlers[i].cmd);
       return file_type_handlers[i].cmd;
     }
   }

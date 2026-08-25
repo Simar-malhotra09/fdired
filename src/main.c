@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (log_init("debug.txt")) {
+  if (log_init("logger.txt")) {
     printf("Error opening file!\n");
     exit(1);
   }
@@ -61,7 +61,6 @@ int main(int argc, char **argv) {
     /* capture the positional arg for some reason */
     if (argv[i][0] != '-' && n_pos < 3) {
       pos_args[n_pos++] = argv[i]; // two pointers to same data??
-      log_write("pos arg #%d, %s\n", n_pos, argv[i]);
     }
     cmd_append(&cmd, argv[i]);
   }
@@ -238,14 +237,17 @@ int main(int argc, char **argv) {
 
       /*TO DO: instead of using NVIM, query the configs*/
       FileType file_type = match_file_type(r->file);
-      const char *file_type_handler = get_handler_for_file(file_type);
+      const char *file_type_handler = get_file_type_handler(file_type);
+      log_write("for file : %s, got handler: %s\n", r->file, file_type_handler);
 
       char open_cmd[1200];
-      if (r->line_num > 0)
+      if (r->line_num > 0 && strcmp(file_type_handler, "nvim") == 0) {
         snprintf(open_cmd, sizeof(open_cmd), "%s +%d \"%s\"", file_type_handler,
                  r->line_num, r->file);
-      else
-        snprintf(open_cmd, sizeof(open_cmd), "nvim \"%s\"", r->file);
+      } else {
+        snprintf(open_cmd, sizeof(open_cmd), "%s \"%s\"", file_type_handler,
+                 r->file);
+      }
 
       /* restore the display string */
       if (r->file_end >= 0)
