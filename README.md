@@ -33,6 +33,8 @@ Ideally we could support any filter that spits out newline seperated filepaths +
 
 # Why is the progress so slow?
 
+### This is pure human slop 🦅🦅🦅
+
 As mentioned before, I kinda suck at C and there no AI except for refactoring/checking vulnerabilities occasionally
 
 # To do:
