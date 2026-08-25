@@ -41,6 +41,8 @@ As mentioned before, I kinda suck at C and there no AI except for refactoring/ch
 - [ ] Be able to filter using vim's '/' syntax. Use n/N to navigate matches.
 
 Status?
+(2026/07/24) Add basic functionality to open diff files with diff cmd. `nvim` for ascii, `open` for pdf etc. This now needs to be read from a dedicated config file, and tested.
+
 (2026/07/05) Added additional func mapped to keys like <Tab>(toggle btw full filepath vs rel), <y>(copy filepath) etc. The parsing logic is terrible and breaks on "abc*". Will fix soon.
 
 (2026/06/25) Added highlighting to UI. Line numbers in green, matched syntax in red, correct symbols for j/k keys. Fix general issues.
